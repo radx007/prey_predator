@@ -1,9 +1,7 @@
 package com.reactive.preypredator.model;
 
-import com.reactive.preypredator.config.DynamicConfig;
-
 /**
- * Represents a single cell in the grid with grass and dynamic regrowth mechanics
+ * Represents a single cell in the grid
  */
 public class Cell {
     private CellType type;
@@ -12,56 +10,37 @@ public class Cell {
 
     public Cell(CellType type) {
         this.type = type;
-        this.hasGrass = (type == CellType.GRASS);
+        this.hasGrass = (type == CellType.GRASS || type == CellType.EMPTY);
         this.grassRegrowthTimer = 0;
-    }
-
-    /**
-     * Check if this cell has grass available for eating
-     */
-    public boolean hasGrass() {
-        return hasGrass && type != CellType.OBSTACLE;
-    }
-
-    /**
-     * Consume grass from this cell (✨ Uses DYNAMIC regrowth time)
-     */
-    public void eatGrass() {
-        if (hasGrass) {
-            hasGrass = false;
-            grassRegrowthTimer = DynamicConfig.grassRegrowthTime; // ✨ DYNAMIC
-        }
-    }
-
-    /**
-     * Update grass regrowth timer
-     */
-    public void updateGrassRegrowth() {
-        if (!hasGrass && type != CellType.OBSTACLE) {
-            if (grassRegrowthTimer > 0) {
-                grassRegrowthTimer--;
-            } else {
-                hasGrass = true;
-            }
-        }
-    }
-
-    /**
-     * Check if this cell is walkable by agents
-     */
-    public boolean isWalkable() {
-        return type != CellType.OBSTACLE;
     }
 
     public CellType getType() {
         return type;
     }
 
-    public void setType(CellType type) {
-        this.type = type;
+    public boolean hasGrass() {
+        return hasGrass && type != CellType.OBSTACLE;
     }
 
-    public int getGrassRegrowthTimer() {
-        return grassRegrowthTimer;
+    public void eatGrass() {
+        if (hasGrass) {
+            hasGrass = false;
+            grassRegrowthTimer = 0;
+        }
+    }
+
+    public void updateGrassRegrowth(int regrowthTime) {
+        if (!hasGrass && type != CellType.OBSTACLE) {
+            grassRegrowthTimer++;
+            if (grassRegrowthTimer >= regrowthTime) {
+                hasGrass = true;
+                grassRegrowthTimer = 0;
+            }
+        }
+    }
+
+    public boolean isWalkable() {
+        return type != CellType.OBSTACLE;
     }
 }
+

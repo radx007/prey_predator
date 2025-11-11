@@ -1,74 +1,78 @@
 package com.reactive.preypredator.agents;
 
 import com.reactive.preypredator.config.Config;
-import com.reactive.preypredator.config.DynamicConfig;
 import com.reactive.preypredator.environment.ReactiveEnvironment;
+import com.reactive.preypredator.model.Gender;
 import com.reactive.preypredator.model.Position;
+import jade.core.Agent;
 
 /**
- * Reactive Predator Agent with Dynamic Behavior Adaptation
+ * Predator agent in the reactive system
  */
-public class PredatorAgent extends ReactiveAgent {
-    private static int counter = 0;
+public class PredatorAgent extends Agent {
+    private ReactiveEnvironment environment;
+    private Position position;
+    private int energy;
+    private Gender gender;
+    private int reproductionCooldown;
+    private int ticksWithoutFood;
+    private boolean alive;
 
-    public PredatorAgent(Position position, int energy) {
-        super("Predator" + (counter++), position, energy);
+    @Override
+    protected void setup() {
+        Object[] args = getArguments();
+        if (args != null && args.length >= 4) {
+            this.environment = (ReactiveEnvironment) args[0];
+            this.position = (Position) args[1];
+            this.gender = (Gender) args[2];
+            String name = (String) args[3];
+        }
+
+        this.energy = Config.PREDATOR_ENERGY_START;
+        this.reproductionCooldown = 0;
+        this.ticksWithoutFood = 0;
+        this.alive = true;
+
+        // Register with environment
+        environment.registerPredatorAgent(getLocalName(), this);
+
+        // Add cyclic behavior
+        addBehaviour(new PredatorBehavior(this, environment));
     }
 
     @Override
-    public void react(ReactiveEnvironment env) {
-        if (!alive) return;
+    protected void takeDown() {
+        alive = false;
+    }
 
-        // Check death conditions
-        if (energy <= 0 || ticksWithoutFood > Config.PREDATOR_STARVATION_LIMIT) {
-            die();
-            env.notifyDeath(this);
-            return;
-        }
+    // Getters and setters
+    public Position getPosition() { return position; }
+    public void setPosition(Position position) { this.position = position; }
+    public void setEnvironment(ReactiveEnvironment env) { this.environment = env; }
+    public void setGender(Gender g) { this.gender = g; }
+    public int getEnergy() { return energy; }
+    public void setEnergy(int energy) { this.energy = Math.min(energy, Config.PREDATOR_ENERGY_MAX); }
+    public Gender getGender() { return gender; }
+    public int getReproductionCooldown() { return reproductionCooldown; }
+    public void setReproductionCooldown(int cooldown) { this.reproductionCooldown = cooldown; }
+    public int getTicksWithoutFood() { return ticksWithoutFood; }
+    public void setTicksWithoutFood(int ticks) { this.ticksWithoutFood = ticks; }
+    public boolean isAlive() { return alive; }
 
-        // Consume energy for living (✨ DYNAMIC move cost)
-        consumeEnergy(DynamicConfig.predatorMoveCost);
-        decrementCooldown();
+    public void consumeEnergy(int amount) {
+        energy = Math.max(0, energy - amount);
+    }
 
-        // REACTIVE PERCEPTION
-        PreyAgent nearestPrey = env.findNearestPrey(position, Config.PREDATOR_VISION_RANGE);
+    public void gainEnergy(int amount) {
+        energy = Math.min(Config.PREDATOR_ENERGY_MAX, energy + amount);
+        ticksWithoutFood = 0;
+    }
 
-        // REACTIVE DECISION
-        if (nearestPrey != null) {
-            // CHASE PREY
-            position = env.moveTowards(position, nearestPrey.getPosition(), id);
+    public boolean canReproduce() {
+        return energy >= Config.PREDATOR_REPRODUCTION_THRESHOLD && reproductionCooldown == 0;
+    }
 
-            // Try to attack if close enough (✨ DYNAMIC success rate)
-            if (position.distanceTo(nearestPrey.getPosition()) <= 1.5) {
-                if (Math.random() < DynamicConfig.predatorAttackSuccessRate) {
-                    // SUCCESSFUL HUNT
-                    nearestPrey.die();
-                    env.notifyDeath(nearestPrey);
-                    gainEnergy(Config.PREDATOR_HUNT_GAIN, Config.PREDATOR_ENERGY_MAX);
-                    ticksWithoutFood = 0;
-                    System.out.println(id + " successfully hunted " + nearestPrey.getId());
-                }
-            }
-        } else {
-
-
-            // RANDOM WALK.
-            position = env.getRandomAdjacentPosition(position, id);
-            ticksWithoutFood++;
-        }
-
-        // Try to reproduce (✨ DYNAMIC reproduction cooldown)
-        if (canReproduce(Config.PREDATOR_MIN_REPRODUCTION_ENERGY)) {
-            PredatorAgent mate = env.findPredatorMate(this, Config.PREDATOR_VISION_RANGE);
-            if (mate != null) {
-                env.reproducePredatorAgents(this, mate);
-                setEnergy((int) (energy / Config.PREDATOR_REPRODUCTION_ENERGY_COST));
-                setReproductionCooldown(DynamicConfig.predatorReproductionCooldown); // ✨ DYNAMIC
-            }
-
-        }
-
-        // Update environment
-        env.updateAgentPosition(id, position);
+    public boolean isDead() {
+        return energy <= 0 || ticksWithoutFood >= Config.PREDATOR_STARVATION_LIMIT;
     }
 }

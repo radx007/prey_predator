@@ -1,13 +1,12 @@
 package com.reactive.preypredator.model;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * Represents a 2D position in the grid
  */
 public class Position implements Serializable {
-    private static final long serialVersionUID = 1L;
-
     public int x;
     public int y;
 
@@ -16,40 +15,31 @@ public class Position implements Serializable {
         this.y = y;
     }
 
-    /**
-     * Calculate Euclidean distance to another position
-     */
     public double distanceTo(Position other) {
         int dx = this.x - other.x;
         int dy = this.y - other.y;
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    /**
-     * Calculate Manhattan distance to another position
-     */
     public int manhattanDistance(Position other) {
         return Math.abs(this.x - other.x) + Math.abs(this.y - other.y);
     }
 
-    /**
-     * Create a copy of this position
-     */
     public Position copy() {
-        return new Position(this.x, this.y);
+        return new Position(x, y);
     }
 
     @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        Position position = (Position) obj;
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Position position = (Position) o;
         return x == position.x && y == position.y;
     }
 
     @Override
     public int hashCode() {
-        return 31 * x + y;
+        return Objects.hash(x, y);
     }
 
     @Override

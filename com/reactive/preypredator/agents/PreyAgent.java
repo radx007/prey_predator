@@ -1,70 +1,78 @@
 package com.reactive.preypredator.agents;
 
 import com.reactive.preypredator.config.Config;
-import com.reactive.preypredator.config.DynamicConfig;
 import com.reactive.preypredator.environment.ReactiveEnvironment;
+import com.reactive.preypredator.model.Gender;
 import com.reactive.preypredator.model.Position;
+import jade.core.Agent;
 
 /**
- * Reactive Prey Agent with Dynamic Behavior Adaptation
+ * Prey agent in the reactive system
  */
-public class PreyAgent extends ReactiveAgent {
-    private static int counter = 0;
+public class PreyAgent extends Agent {
+    private ReactiveEnvironment environment;
+    private Position position;
+    private int energy;
+    private Gender gender;
+    private int reproductionCooldown;
+    private int ticksWithoutFood;
+    private boolean alive;
 
-    public PreyAgent(Position position, int energy) {
-        super("Prey" + (counter++), position, energy);
+    @Override
+    protected void setup() {
+        Object[] args = getArguments();
+        if (args != null && args.length >= 4) {
+            this.environment = (ReactiveEnvironment) args[0];
+            this.position = (Position) args[1];
+            this.gender = (Gender) args[2];
+            String name = (String) args[3];
+        }
+
+        this.energy = Config.PREY_ENERGY_START;
+        this.reproductionCooldown = 0;
+        this.ticksWithoutFood = 0;
+        this.alive = true;
+
+        // Register with environment
+        environment.registerPreyAgent(getLocalName(), this);
+
+        // Add cyclic behavior
+        addBehaviour(new PreyBehavior(this, environment));
     }
 
     @Override
-    public void react(ReactiveEnvironment env) {
-        if (!alive) return;
+    protected void takeDown() {
+        alive = false;
+    }
 
-        // Check death conditions
-        if (energy <= 0 || ticksWithoutFood > Config.PREY_STARVATION_LIMIT) {
-            die();
-            env.notifyDeath(this);
-            return;
-        }
+    // Getters and setters
+    public Position getPosition() { return position; }
+    public void setPosition(Position position) { this.position = position; }
+    public void setEnvironment(ReactiveEnvironment env) { this.environment = env; }
+    public void setGender(Gender g) { this.gender = g; }
+    public int getEnergy() { return energy; }
+    public void setEnergy(int energy) { this.energy = Math.min(energy, Config.PREY_ENERGY_MAX); }
+    public Gender getGender() { return gender; }
+    public int getReproductionCooldown() { return reproductionCooldown; }
+    public void setReproductionCooldown(int cooldown) { this.reproductionCooldown = cooldown; }
+    public int getTicksWithoutFood() { return ticksWithoutFood; }
+    public void setTicksWithoutFood(int ticks) { this.ticksWithoutFood = ticks; }
+    public boolean isAlive() { return alive; }
 
-        // Consume energy for living
-        consumeEnergy(Config.PREY_MOVE_COST);
-        decrementCooldown();
+    public void consumeEnergy(int amount) {
+        energy = Math.max(0, energy - amount);
+    }
 
-        // REACTIVE PERCEPTION
-        Position nearestPredator = env.findNearestPredator(position, Config.PREY_VISION_RANGE);
-        Position nearestGrass = env.findNearestGrass(position, Config.PREY_VISION_RANGE);
+    public void gainEnergy(int amount) {
+        energy = Math.min(Config.PREY_ENERGY_MAX, energy + amount);
+        ticksWithoutFood = 0;
+    }
 
-        // REACTIVE DECISION
-        if (nearestPredator != null && position.distanceTo(nearestPredator) <= 4) {
-            // FLEE FROM PREDATOR
-            position = env.moveAwayFrom(position, nearestPredator, id);
-        } else if (nearestGrass != null) {
-            // SEEK GRASS
-            position = env.moveTowards(position, nearestGrass, id);
-        } else {
-            // RANDOM WALK
-            position = env.getRandomAdjacentPosition(position, id);
-        }
+    public boolean canReproduce() {
+        return energy >= Config.PREY_REPRODUCTION_THRESHOLD && reproductionCooldown == 0;
+    }
 
-        // Try to eat grass (✨ DYNAMIC grass gain)
-        if (env.eatGrass(position)) {
-            gainEnergy(DynamicConfig.preyGrassGain, Config.PREY_ENERGY_MAX);
-            ticksWithoutFood = 0;
-        } else {
-            ticksWithoutFood++;
-        }
-
-        // Try to reproduce (✨ DYNAMIC reproduction cooldown)
-        if (canReproduce(Config.PREY_MIN_REPRODUCTION_ENERGY)) {
-            PreyAgent mate = env.findPreyMate(this, Config.PREY_VISION_RANGE);
-            if (mate != null) {
-                env.reproducePreyAgents(this, mate);
-                setEnergy((int) (energy / Config.PREY_REPRODUCTION_ENERGY_COST));
-                setReproductionCooldown(DynamicConfig.preyReproductionCooldown); // ✨ DYNAMIC
-            }
-        }
-
-        // Update environment
-        env.updateAgentPosition(id, position);
+    public boolean isDead() {
+        return energy <= 0 || ticksWithoutFood >= Config.PREY_STARVATION_LIMIT;
     }
 }

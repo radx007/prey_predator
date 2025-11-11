@@ -2,343 +2,319 @@ package com.reactive.preypredator.environment;
 
 import com.reactive.preypredator.agents.PreyAgent;
 import com.reactive.preypredator.agents.PredatorAgent;
-import com.reactive.preypredator.agents.ReactiveAgent;
 import com.reactive.preypredator.config.Config;
-import com.reactive.preypredator.config.DynamicConfig;
-import com.reactive.preypredator.model.Cell;
+import com.reactive.preypredator.model.Gender;
 import com.reactive.preypredator.model.Grid;
 import com.reactive.preypredator.model.Position;
 import com.reactive.preypredator.statistics.DataLogger;
 import com.reactive.preypredator.statistics.Statistics;
+import jade.core.Profile;
+import jade.core.ProfileImpl;
+import jade.core.Runtime;
+import jade.wrapper.AgentContainer;
+import jade.wrapper.AgentController;
+import jade.wrapper.StaleProxyException;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Reactive Environment - Central hub for all agent interactions
+ * Reactive environment that manages the simulation without ACL messages
  */
 public class ReactiveEnvironment {
     private Grid grid;
-    private List<PreyAgent> preyAgents;
-    private List<PredatorAgent> predatorAgents;
-    private int currentTick;
+    private AgentContainer container;
+    private Map<String, PreyAgent> preyRegistry;
+    private Map<String, PredatorAgent> predatorRegistry;
     private DataLogger dataLogger;
-    private Random random;
+    private int currentTick;
+    private boolean running;
+
+    // Synchronization for tick-based execution
+    private volatile boolean tickReady;
+    private AtomicInteger preyActionsComplete;
+    private AtomicInteger predatorActionsComplete;
 
     public ReactiveEnvironment() {
         this.grid = new Grid(Config.GRID_WIDTH, Config.GRID_HEIGHT);
-        this.preyAgents = new CopyOnWriteArrayList<>();
-        this.predatorAgents = new CopyOnWriteArrayList<>();
+        this.preyRegistry = new ConcurrentHashMap<>();
+        this.predatorRegistry = new ConcurrentHashMap<>();
+        this.dataLogger = new DataLogger("simulation_data.csv");
         this.currentTick = 0;
-        this.dataLogger = new DataLogger("simulation_stats.csv");
-        this.random = new Random();
+        this.running = true;
+        this.tickReady = false;
+        this.preyActionsComplete = new AtomicInteger(0);
+        this.predatorActionsComplete = new AtomicInteger(0);
 
-        initializePopulation();
+        initializeJADE();
+
+        // Give JADE time to initialize
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        initializeAgents();
+
+        // Give agents time to register
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        System.out.println("Environment initialized with " +
+                preyRegistry.size() + " prey and " +
+                predatorRegistry.size() + " predators");
     }
 
-    private void initializePopulation() {
+    private void initializeJADE() {
+        Runtime rt = Runtime.instance();
+        Profile profile = new ProfileImpl();
+        profile.setParameter(Profile.MAIN_HOST, "localhost");
+        profile.setParameter(Profile.GUI, "false");
+        container = rt.createMainContainer(profile);
+    }
+
+    private void initializeAgents() {
+        // Create prey agents
         for (int i = 0; i < Config.INITIAL_PREY_COUNT; i++) {
-            Position pos = findRandomEmptyPosition();
-            if (pos != null) {
-                PreyAgent prey = new PreyAgent(pos, Config.PREY_ENERGY_START);
-                preyAgents.add(prey);
-                grid.setAgentPosition(prey.getId(), pos);
-            }
+            Position pos = grid.getRandomWalkablePosition();
+            createPreyAgent(pos, Gender.random());
         }
 
+        // Create predator agents
         for (int i = 0; i < Config.INITIAL_PREDATOR_COUNT; i++) {
-            Position pos = findRandomEmptyPosition();
-            if (pos != null) {
-                PredatorAgent predator = new PredatorAgent(pos, Config.PREDATOR_ENERGY_START);
-                predatorAgents.add(predator);
-                grid.setAgentPosition(predator.getId(), pos);
-            }
+            Position pos = grid.getRandomWalkablePosition();
+            createPredatorAgent(pos, Gender.random());
         }
-
-        System.out.println("Environment initialized:");
-        System.out.println("  - Prey: " + preyAgents.size());
-        System.out.println("  - Predators: " + predatorAgents.size());
     }
 
+    public synchronized void createPreyAgent(Position pos, Gender gender) {
+        try {
+            String name = "Prey_" + System.nanoTime();
+            Object[] args = {this, pos, gender, name};
+
+            AgentController ac = container.createNewAgent(name,
+                    "com.reactive.preypredator.agents.PreyAgent", args);
+            ac.start();
+
+            // Agent will register itself when setup() is called
+
+        } catch (StaleProxyException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public synchronized void createPredatorAgent(Position pos, Gender gender) {
+        try {
+            String name = "Predator_" + System.nanoTime();
+            Object[] args = {this, pos, gender, name};
+
+            AgentController ac = container.createNewAgent(name,
+                    "com.reactive.preypredator.agents.PredatorAgent", args);
+            ac.start();
+
+            // Agent will register itself when setup() is called
+
+        } catch (StaleProxyException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Registration methods called by agents
+    public synchronized void registerPreyAgent(String name, PreyAgent agent) {
+        preyRegistry.put(name, agent);
+        grid.setAgentPosition(name, agent.getPosition());
+    }
+
+    public synchronized void registerPredatorAgent(String name, PredatorAgent agent) {
+        predatorRegistry.put(name, agent);
+        grid.setAgentPosition(name, agent.getPosition());
+    }
+
+    public synchronized void removePreyAgent(String name) {
+        grid.removeAgent(name);
+        preyRegistry.remove(name);
+    }
+
+    public synchronized void removePredatorAgent(String name) {
+        grid.removeAgent(name);
+        predatorRegistry.remove(name);
+    }
+
+    /**
+     * Execute one simulation tick with proper synchronization
+     */
     public void tick() {
+        if (!running) return;
+
         currentTick++;
+
+        // Phase 1: Environment updates (no agent interaction)
         grid.updateGrassRegrowth();
 
-        DynamicConfig.update(
-                currentTick,
-                preyAgents.size(),
-                predatorAgents.size(),
-                grid.getGrassCoverage()
-        );
+        // Phase 2: Signal agents to act
+        int preyCount = preyRegistry.size();
+        int predCount = predatorRegistry.size();
 
-        for (PreyAgent prey : new ArrayList<>(preyAgents)) {
-            if (prey.isAlive()) {
-                prey.react(this);
+        preyActionsComplete.set(0);
+        predatorActionsComplete.set(0);
+        tickReady = true;
+
+        // Phase 3: Wait for all agents to complete their actions
+        long startWait = System.currentTimeMillis();
+        long timeout = 10000; // 10 second timeout
+
+        while ((preyActionsComplete.get() < preyCount ||
+                predatorActionsComplete.get() < predCount) &&
+                System.currentTimeMillis() - startWait < timeout) {
+            try {
+                Thread.sleep(5); // Small delay to prevent busy-waiting
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
         }
 
-        for (PredatorAgent predator : new ArrayList<>(predatorAgents)) {
-            if (predator.isAlive()) {
-                predator.react(this);
-            }
+        tickReady = false;
+
+        // Phase 4: Give a moment for any final agent updates
+        try {
+            Thread.sleep(50); // 50ms buffer for agent completion
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
+        // Phase 5: Clean up dead agents (safe to modify now)
+        cleanupDeadAgents();
+
+        // Phase 6: Collect statistics
         collectStatistics();
 
-        if (currentTick % 20 == 0) {
-            Statistics stats = dataLogger.getLatest();
-            if (stats != null) {
-                System.out.println(String.format("Tick %d: Prey=%d (E=%.1f) | Predators=%d (E=%.1f) | Grass=%.1f%%",
-                        currentTick, stats.getPreyCount(), stats.getAvgPreyEnergy(),
-                        stats.getPredatorCount(), stats.getAvgPredatorEnergy(), stats.getGrassCoverage() * 100));
+        // Debug output every 10 ticks
+        if (currentTick % 10 == 0) {
+            Statistics latest = dataLogger.getLatest();
+            if (latest != null) {
+                System.out.println(String.format(
+                        "[Tick %d] Prey: %d (Avg Energy: %.1f) | Predators: %d (Avg Energy: %.1f) | Grass: %.1f%%",
+                        currentTick, latest.getPreyCount(), latest.getAvgPreyEnergy(),
+                        latest.getPredatorCount(), latest.getAvgPredatorEnergy(),
+                        latest.getGrassCoverage() * 100
+                ));
             }
+        }
+
+        // Phase 7: Check for extinction
+        if (preyRegistry.isEmpty() || predatorRegistry.isEmpty()) {
+            System.out.println("\n!!! Simulation ended - extinction at tick " + currentTick + " !!!");
+            System.out.println("Remaining Prey: " + preyRegistry.size());
+            System.out.println("Remaining Predators: " + predatorRegistry.size());
+            dataLogger.printSummary();
+            running = false;
+        }
+    }
+
+    private void cleanupDeadAgents() {
+        // Create snapshots to avoid concurrent modification
+        List<String> deadPrey = new ArrayList<>();
+        List<String> deadPreds = new ArrayList<>();
+
+        // Identify dead prey
+        for (Map.Entry<String, PreyAgent> entry : preyRegistry.entrySet()) {
+            PreyAgent prey = entry.getValue();
+            if (prey != null && (!prey.isAlive() || prey.isDead())) {
+                deadPrey.add(entry.getKey());
+            }
+        }
+
+        // Identify dead predators
+        for (Map.Entry<String, PredatorAgent> entry : predatorRegistry.entrySet()) {
+            PredatorAgent pred = entry.getValue();
+            if (pred != null && (!pred.isAlive() || pred.isDead())) {
+                deadPreds.add(entry.getKey());
+            }
+        }
+
+        // Remove dead agents
+        for (String name : deadPrey) {
+            grid.removeAgent(name);
+            preyRegistry.remove(name);
+        }
+
+        for (String name : deadPreds) {
+            grid.removeAgent(name);
+            predatorRegistry.remove(name);
+        }
+
+        if (!deadPrey.isEmpty() || !deadPreds.isEmpty()) {
+            System.out.println(String.format("[Tick %d] Removed %d dead prey, %d dead predators",
+                    currentTick, deadPrey.size(), deadPreds.size()));
         }
     }
 
     private void collectStatistics() {
-        int preyCount = preyAgents.size();
-        int predatorCount = predatorAgents.size();
+        int preyCount = preyRegistry.size();
+        int predatorCount = predatorRegistry.size();
 
-        double avgPreyEnergy = preyCount > 0
-                ? preyAgents.stream().mapToInt(PreyAgent::getEnergy).average().orElse(0)
-                : 0;
+        double avgPreyEnergy = preyRegistry.values().stream()
+                .filter(Objects::nonNull)
+                .mapToInt(PreyAgent::getEnergy)
+                .average()
+                .orElse(0.0);
 
-        double avgPredatorEnergy = predatorCount > 0
-                ? predatorAgents.stream().mapToInt(PredatorAgent::getEnergy).average().orElse(0)
-                : 0;
+        double avgPredatorEnergy = predatorRegistry.values().stream()
+                .filter(Objects::nonNull)
+                .mapToInt(PredatorAgent::getEnergy)
+                .average()
+                .orElse(0.0);
 
         double grassCoverage = grid.getGrassCoverage();
 
         Statistics stats = new Statistics(currentTick, preyCount, predatorCount,
                 avgPreyEnergy, avgPredatorEnergy, grassCoverage);
+
         dataLogger.log(stats);
     }
 
-    // REACTIVE ENVIRONMENT SERVICES
+    // Synchronization methods for agents
+    public boolean isTickReady() {
+        return tickReady;
+    }
 
-    public Position findNearestPredator(Position from, int range) {
-        Position nearest = null;
-        double minDist = Double.MAX_VALUE;
+    public void signalPreyActionComplete() {
+        preyActionsComplete.incrementAndGet();
+    }
 
-        for (PredatorAgent predator : predatorAgents) {
-            if (!predator.isAlive()) continue;
-            double dist = from.distanceTo(predator.getPosition());
-            if (dist <= range && dist < minDist) {
-                minDist = dist;
-                nearest = predator.getPosition();
-            }
+    public void signalPredatorActionComplete() {
+        predatorActionsComplete.incrementAndGet();
+    }
+
+    // Getters - return snapshots for thread safety
+    public Grid getGrid() { return grid; }
+
+    public synchronized List<PreyAgent> getPreyAgents() {
+        return new ArrayList<>(preyRegistry.values());
+    }
+
+    public synchronized List<PredatorAgent> getPredatorAgents() {
+        return new ArrayList<>(predatorRegistry.values());
+    }
+
+    public DataLogger getDataLogger() { return dataLogger; }
+    public int getCurrentTick() { return currentTick; }
+    public boolean isRunning() { return running; }
+    public void setRunning(boolean running) { this.running = running; }
+
+    public void shutdown() {
+        running = false;
+        try {
+            container.kill();
+        } catch (StaleProxyException e) {
+            e.printStackTrace();
         }
-
-        return nearest;
-    }
-
-    public PreyAgent findNearestPrey(Position from, int range) {
-        PreyAgent nearest = null;
-        double minDist = Double.MAX_VALUE;
-
-        for (PreyAgent prey : preyAgents) {
-            if (!prey.isAlive()) continue;
-            double dist = from.distanceTo(prey.getPosition());
-            if (dist <= range && dist < minDist) {
-                minDist = dist;
-                nearest = prey;
-            }
-        }
-
-        return nearest;
-    }
-
-    public Position findNearestGrass(Position from, int range) {
-        Position nearest = null;
-        double minDist = Double.MAX_VALUE;
-
-        for (int x = Math.max(0, from.x - range); x < Math.min(grid.getWidth(), from.x + range + 1); x++) {
-            for (int y = Math.max(0, from.y - range); y < Math.min(grid.getHeight(), from.y + range + 1); y++) {
-                Position pos = new Position(x, y);
-                Cell cell = grid.getCell(x, y);
-                if (cell != null && cell.hasGrass()) {
-                    double dist = from.distanceTo(pos);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        nearest = pos;
-                    }
-                }
-            }
-        }
-
-        return nearest;
-    }
-
-    public PreyAgent findPreyMate(PreyAgent agent, int range) {
-        for (PreyAgent other : preyAgents) {
-            if (!other.isAlive() || other.getId().equals(agent.getId())) continue;
-            if (!other.getGender().equals(agent.getGender()) &&
-                    agent.getPosition().distanceTo(other.getPosition()) <= range &&
-                    other.canReproduce(Config.PREY_MIN_REPRODUCTION_ENERGY)) {
-                return other;
-            }
-        }
-        return null;
-    }
-
-    public PredatorAgent findPredatorMate(PredatorAgent agent, int range) {
-        for (PredatorAgent other : predatorAgents) {
-            if (!other.isAlive() || other.getId().equals(agent.getId())) continue;
-            if (!other.getGender().equals(agent.getGender()) &&
-                    agent.getPosition().distanceTo(other.getPosition()) <= range &&
-                    other.canReproduce(Config.PREDATOR_MIN_REPRODUCTION_ENERGY)) {
-                return other;
-            }
-        }
-        return null;
-    }
-
-    public void reproducePreyAgents(PreyAgent parent1, PreyAgent parent2) {
-        Position babyPos = getRandomAdjacentPosition(parent1.getPosition(), null);
-        if (babyPos != null && !babyPos.equals(parent1.getPosition())) {
-            PreyAgent baby = new PreyAgent(babyPos, Config.PREY_ENERGY_START);
-            preyAgents.add(baby);
-            grid.setAgentPosition(baby.getId(), babyPos);
-        }
-    }
-
-    public void reproducePredatorAgents(PredatorAgent parent1, PredatorAgent parent2) {
-        Position babyPos = getRandomAdjacentPosition(parent1.getPosition(), null);
-        if (babyPos != null && !babyPos.equals(parent1.getPosition())) {
-            PredatorAgent baby = new PredatorAgent(babyPos, Config.PREDATOR_ENERGY_START);
-            predatorAgents.add(baby);
-            grid.setAgentPosition(baby.getId(), babyPos);
-        }
-    }
-
-    public boolean eatGrass(Position pos) {
-        Cell cell = grid.getCell(pos.x, pos.y);
-        if (cell != null && cell.hasGrass()) {
-            cell.eatGrass();
-            return true;
-        }
-        return false;
-    }
-
-    public void notifyDeath(ReactiveAgent agent) {
-        if (agent instanceof PreyAgent) {
-            preyAgents.remove(agent);
-        } else if (agent instanceof PredatorAgent) {
-            predatorAgents.remove(agent);
-        }
-        grid.removeAgent(agent.getId());
-    }
-
-    public void updateAgentPosition(String agentId, Position pos) {
-        grid.setAgentPosition(agentId, pos);
-    }
-
-    public Position moveTowards(Position from, Position to, String agentId) {
-        List<Position> adjacent = getAdjacentPositions(from, agentId);
-        if (adjacent.isEmpty()) return from;
-
-        Position best = from;
-        double minDist = Double.MAX_VALUE;
-
-        for (Position pos : adjacent) {
-            double dist = pos.distanceTo(to);
-            if (dist < minDist) {
-                minDist = dist;
-                best = pos;
-            }
-        }
-
-        return best;
-    }
-
-    public Position moveAwayFrom(Position from, Position threat, String agentId) {
-        List<Position> adjacent = getAdjacentPositions(from, agentId);
-        if (adjacent.isEmpty()) return from;
-
-        Position best = from;
-        double maxDist = -1;
-
-        for (Position pos : adjacent) {
-            double dist = pos.distanceTo(threat);
-            if (dist > maxDist) {
-                maxDist = dist;
-                best = pos;
-            }
-        }
-
-        return best;
-    }
-
-    public Position getRandomAdjacentPosition(Position pos, String agentId) {
-        List<Position> adjacent = getAdjacentPositions(pos, agentId);
-        if (adjacent.isEmpty()) return pos;
-        return adjacent.get(random.nextInt(adjacent.size()));
-    }
-
-    private List<Position> getAdjacentPositions(Position pos, String excludeAgent) {
-        List<Position> adjacent = new ArrayList<>();
-        int[][] directions = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {-1, 1}, {1, -1}, {1, 1}};
-
-        Set<String> occupiedPositions = new HashSet<>();
-        for (Map.Entry<String, Position> entry : grid.getAgentPositions().entrySet()) {
-            if (excludeAgent == null || !entry.getKey().equals(excludeAgent)) {
-                Position p = entry.getValue();
-                occupiedPositions.add(p.x + "," + p.y);
-            }
-        }
-
-        for (int[] dir : directions) {
-            Position newPos = new Position(pos.x + dir[0], pos.y + dir[1]);
-            String key = newPos.x + "," + newPos.y;
-
-            if (grid.isWalkable(newPos) && !occupiedPositions.contains(key)) {
-                adjacent.add(newPos);
-            }
-        }
-
-        return adjacent;
-    }
-
-    private Position findRandomEmptyPosition() {
-        Set<String> occupiedPositions = new HashSet<>();
-        for (Position pos : grid.getAgentPositions().values()) {
-            occupiedPositions.add(pos.x + "," + pos.y);
-        }
-
-        for (int attempt = 0; attempt < 100; attempt++) {
-            int x = random.nextInt(grid.getWidth());
-            int y = random.nextInt(grid.getHeight());
-            Position pos = new Position(x, y);
-            String key = x + "," + y;
-
-            if (grid.isWalkable(pos) && !occupiedPositions.contains(key)) {
-                return pos;
-            }
-        }
-        return null;
-    }
-
-    public boolean isRunning() {
-        return currentTick < Config.MAX_TICKS && !preyAgents.isEmpty() && !predatorAgents.isEmpty();
-    }
-
-    public Grid getGrid() {
-        return grid;
-    }
-
-    public List<PreyAgent> getPreyAgents() {
-        return new ArrayList<>(preyAgents);
-    }
-
-    public List<PredatorAgent> getPredatorAgents() {
-        return new ArrayList<>(predatorAgents);
-    }
-
-    public DataLogger getDataLogger() {
-        return dataLogger;
-    }
-
-    public int getCurrentTick() {
-        return currentTick;
     }
 }

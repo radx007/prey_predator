@@ -1,122 +1,118 @@
 package com.reactive.preypredator.model;
 
 import com.reactive.preypredator.config.Config;
-
 import java.util.*;
 
 /**
- * Represents the simulation grid/environment with cells and agent positions
+ * Grid environment for the simulation
  */
 public class Grid {
-    private int width;
-    private int height;
-    private Cell[][] cells;
-    private Map<String, Position> agentPositions;
+    private final int width;
+    private final int height;
+    private final Cell[][] cells;
+    private final Map<String, Position> agentPositions;
+    private final Random random;
 
     public Grid(int width, int height) {
         this.width = width;
         this.height = height;
         this.cells = new Cell[width][height];
         this.agentPositions = new HashMap<>();
+        this.random = new Random();
         initializeGrid();
     }
 
-    /**
-     * Initialize the grid with grass, obstacles, and empty cells
-     */
     private void initializeGrid() {
-        Random rand = new Random();
-
-        // Initialize all cells as empty
+        // Initialize all cells as empty with grass
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 cells[x][y] = new Cell(CellType.EMPTY);
             }
         }
 
-        // Add grass
-        int grassCount = (int) (width * height * Config.INITIAL_GRASS_COVERAGE);
-        for (int i = 0; i < grassCount; i++) {
-            int x = rand.nextInt(width);
-            int y = rand.nextInt(height);
-            cells[x][y] = new Cell(CellType.GRASS);
+        // Add initial grass coverage
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                if (random.nextDouble() > Config.GRASS_INITIAL_COVERAGE) {
+                    cells[x][y].eatGrass();
+                }
+            }
         }
 
         // Add obstacles
-        int obstacleCount = (int) (width * height * Config.OBSTACLE_COVERAGE);
-        for (int i = 0; i < obstacleCount; i++) {
-            int x = rand.nextInt(width);
-            int y = rand.nextInt(height);
+        for (int i = 0; i < Config.OBSTACLE_COUNT; i++) {
+            int x = random.nextInt(width);
+            int y = random.nextInt(height);
             cells[x][y] = new Cell(CellType.OBSTACLE);
         }
     }
 
-    /**
-     * Get cell at position
-     */
+    public int getWidth() {
+        return width;
+    }
+
+    public int getHeight() {
+        return height;
+    }
+
     public Cell getCell(int x, int y) {
-        if (isValidPosition(new Position(x, y))) {
+        if (isValidPosition(x, y)) {
             return cells[x][y];
         }
         return null;
     }
 
-    /**
-     * Check if position is within grid bounds
-     */
+    public Cell getCell(Position pos) {
+        return getCell(pos.x, pos.y);
+    }
+
+    public boolean isValidPosition(int x, int y) {
+        return x >= 0 && x < width && y >= 0 && y < height;
+    }
+
     public boolean isValidPosition(Position pos) {
-        return pos.x >= 0 && pos.x < width && pos.y >= 0 && pos.y < height;
+        return isValidPosition(pos.x, pos.y);
     }
 
-    /**
-     * Check if position is walkable (not an obstacle)
-     */
     public boolean isWalkable(Position pos) {
-        return isValidPosition(pos) && cells[pos.x][pos.y].isWalkable();
+        Cell cell = getCell(pos);
+        return cell != null && cell.isWalkable();
     }
 
-    /**
-     * Update grass regrowth for all cells
-     */
+    public synchronized Position getAgentPosition(String agentName) {
+        return agentPositions.get(agentName);
+    }
+
+    public synchronized void setAgentPosition(String agentName, Position pos) {
+        agentPositions.put(agentName, pos);
+    }
+
+    public synchronized void removeAgent(String agentName) {
+        agentPositions.remove(agentName);
+    }
+
+    public synchronized List<String> getAgentsInRange(Position center, int range) {
+        List<String> nearby = new ArrayList<>();
+        for (Map.Entry<String, Position> entry : agentPositions.entrySet()) {
+            if (entry.getValue().manhattanDistance(center) <= range) {
+                nearby.add(entry.getKey());
+            }
+        }
+        return nearby;
+    }
+
+    public synchronized Map<String, Position> getAllAgentPositions() {
+        return new HashMap<>(agentPositions);
+    }
+
     public void updateGrassRegrowth() {
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                cells[x][y].updateGrassRegrowth();
+                cells[x][y].updateGrassRegrowth(Config.GRASS_REGROWTH_TIME);
             }
         }
     }
 
-    /**
-     * Get agent position by ID
-     */
-    public Position getAgentPosition(String agentId) {
-        return agentPositions.get(agentId);
-    }
-
-    /**
-     * Set agent position
-     */
-    public void setAgentPosition(String agentId, Position pos) {
-        agentPositions.put(agentId, pos);
-    }
-
-    /**
-     * Remove agent from grid
-     */
-    public void removeAgent(String agentId) {
-        agentPositions.remove(agentId);
-    }
-
-    /**
-     * Get all agent positions
-     */
-    public Map<String, Position> getAgentPositions() {
-        return new HashMap<>(agentPositions);
-    }
-
-    /**
-     * Count total grass cells
-     */
     public int countGrassCells() {
         int count = 0;
         for (int x = 0; x < width; x++) {
@@ -129,18 +125,33 @@ public class Grid {
         return count;
     }
 
-    /**
-     * Get grass coverage percentage
-     */
     public double getGrassCoverage() {
-        return (double) countGrassCells() / (width * height);
+        int totalWalkable = 0;
+        int grassCount = 0;
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                if (cells[x][y].isWalkable()) {
+                    totalWalkable++;
+                    if (cells[x][y].hasGrass()) {
+                        grassCount++;
+                    }
+                }
+            }
+        }
+        return totalWalkable > 0 ? (double) grassCount / totalWalkable : 0.0;
     }
 
-    public int getWidth() {
-        return width;
-    }
-
-    public int getHeight() {
-        return height;
+    public Position getRandomWalkablePosition() {
+        int attempts = 0;
+        while (attempts < 1000) {
+            int x = random.nextInt(width);
+            int y = random.nextInt(height);
+            Position pos = new Position(x, y);
+            if (isWalkable(pos)) {
+                return pos;
+            }
+            attempts++;
+        }
+        return new Position(width / 2, height / 2);
     }
 }
