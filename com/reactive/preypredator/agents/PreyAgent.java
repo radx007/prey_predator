@@ -69,7 +69,7 @@ public class PreyAgent extends Agent {
     }
 
     public boolean canReproduce() {
-        return energy >= Config.PREY_REPRODUCTION_THRESHOLD && reproductionCooldown == 0;
+        return energy >= Config.PREY_MIN_REPRODUCTION_ENERGY && reproductionCooldown == 0;
     }
 
     public boolean isDead() {

@@ -17,7 +17,6 @@ import jade.wrapper.StaleProxyException;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -102,8 +101,6 @@ public class ReactiveEnvironment {
                     "com.reactive.preypredator.agents.PreyAgent", args);
             ac.start();
 
-            // Agent will register itself when setup() is called
-
         } catch (StaleProxyException e) {
             e.printStackTrace();
         }
@@ -117,8 +114,6 @@ public class ReactiveEnvironment {
             AgentController ac = container.createNewAgent(name,
                     "com.reactive.preypredator.agents.PredatorAgent", args);
             ac.start();
-
-            // Agent will register itself when setup() is called
 
         } catch (StaleProxyException e) {
             e.printStackTrace();
@@ -167,13 +162,13 @@ public class ReactiveEnvironment {
 
         // Phase 3: Wait for all agents to complete their actions
         long startWait = System.currentTimeMillis();
-        long timeout = 10000; // 10 second timeout
+        long timeout = 5000; // FIXED: Reduced to 5 seconds for faster response
 
         while ((preyActionsComplete.get() < preyCount ||
                 predatorActionsComplete.get() < predCount) &&
                 System.currentTimeMillis() - startWait < timeout) {
             try {
-                Thread.sleep(5); // Small delay to prevent busy-waiting
+                Thread.sleep(2); // FIXED: Reduced sleep for faster response
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -182,17 +177,12 @@ public class ReactiveEnvironment {
 
         tickReady = false;
 
-        // Phase 4: Give a moment for any final agent updates
-        try {
-            Thread.sleep(50); // 50ms buffer for agent completion
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        // FIXED: Removed the 50ms buffer - we want immediate response
 
-        // Phase 5: Clean up dead agents (safe to modify now)
+        // Phase 4: Clean up dead agents (safe to modify now)
         cleanupDeadAgents();
 
-        // Phase 6: Collect statistics
+        // Phase 5: Collect statistics
         collectStatistics();
 
         // Debug output every 10 ticks
@@ -208,7 +198,7 @@ public class ReactiveEnvironment {
             }
         }
 
-        // Phase 7: Check for extinction
+        // Phase 6: Check for extinction
         if (preyRegistry.isEmpty() || predatorRegistry.isEmpty()) {
             System.out.println("\n!!! Simulation ended - extinction at tick " + currentTick + " !!!");
             System.out.println("Remaining Prey: " + preyRegistry.size());

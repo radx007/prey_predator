@@ -33,14 +33,14 @@ public class Grid {
         // Add initial grass coverage
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                if (random.nextDouble() > Config.GRASS_INITIAL_COVERAGE) {
+                if (random.nextDouble() > Config.INITIAL_GRASS_COVERAGE) {
                     cells[x][y].eatGrass();
                 }
             }
         }
 
         // Add obstacles
-        for (int i = 0; i < Config.OBSTACLE_COUNT; i++) {
+        for (int i = 0; i < Config.OBSTACLE_COVERAGE; i++) {
             int x = random.nextInt(width);
             int y = random.nextInt(height);
             cells[x][y] = new Cell(CellType.OBSTACLE);

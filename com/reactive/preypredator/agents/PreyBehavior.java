@@ -36,8 +36,8 @@ public class PreyBehavior extends CyclicBehaviour {
 
         // Check if dead before action
         if (agent.isDead()) {
-            System.out.println("[" + agent.getLocalName() + "] Dying - Energy: " +
-                    agent.getEnergy() + ", Starvation: " + agent.getTicksWithoutFood());
+            System.out.println("[" + agent.getLocalName() + "] DIED - Energy: " +
+                    agent.getEnergy() + ", Starvation ticks: " + agent.getTicksWithoutFood());
             environment.removePreyAgent(agent.getLocalName());
             agent.doDelete();
             return;
@@ -54,15 +54,21 @@ public class PreyBehavior extends CyclicBehaviour {
         List<PredatorAgent> nearbyPredators = perceivePredators(currentPos);
 
         // Decision making
+        boolean ateGrass = false;
         if (!nearbyPredators.isEmpty()) {
             // Flee from predators
+            System.out.println("[" + agent.getLocalName() + "] FLEEING from " + nearbyPredators.size() + " predators");
             flee(currentPos, nearbyPredators);
         } else {
-            // Try to eat grass
+            // Try to eat grass at current position
             Cell currentCell = environment.getGrid().getCell(currentPos);
             if (currentCell != null && currentCell.hasGrass()) {
                 currentCell.eatGrass();
-                agent.gainEnergy(Config.PREY_ENERGY_GAIN_GRASS);
+                agent.gainEnergy(Config.PREY_GRASS_GAIN);
+                ateGrass = true;
+                System.out.println("[" + agent.getLocalName() + "] ATE GRASS at " + currentPos +
+                        " (gained " + Config.PREY_GRASS_GAIN + " energy, now at " +
+                        agent.getEnergy() + "/" + Config.PREY_ENERGY_MAX + ")");
             } else {
                 // Move towards grass or random walk
                 moveTowardsGrass(currentPos);
@@ -75,8 +81,12 @@ public class PreyBehavior extends CyclicBehaviour {
         }
 
         // Energy consumption
-        agent.consumeEnergy(Config.PREY_ENERGY_LOSS);
-        agent.setTicksWithoutFood(agent.getTicksWithoutFood() + 1);
+        agent.consumeEnergy(Config.PREY_MOVE_COST);
+
+        // FIXED: Only increment starvation if didn't eat grass this tick
+        if (!ateGrass) {
+            agent.setTicksWithoutFood(agent.getTicksWithoutFood() + 1);
+        }
 
         // Update cooldowns
         if (agent.getReproductionCooldown() > 0) {
@@ -125,8 +135,11 @@ public class PreyBehavior extends CyclicBehaviour {
 
         if (!grassPositions.isEmpty()) {
             Position target = grassPositions.get(random.nextInt(grassPositions.size()));
+            System.out.println("[" + agent.getLocalName() + "] Moving towards grass from " +
+                    currentPos + " to " + target);
             moveTowards(currentPos, target);
         } else {
+            System.out.println("[" + agent.getLocalName() + "] No grass nearby, random walk");
             randomWalk(currentPos);
         }
     }
@@ -198,7 +211,10 @@ public class PreyBehavior extends CyclicBehaviour {
             // Reproduce
             Position offspringPos = findEmptyNeighbor(pos);
             if (offspringPos != null) {
-                environment.createPreyAgent(offspringPos, Gender.random());
+                Gender babyGender = Gender.random();
+                System.out.println("[" + agent.getLocalName() + "] REPRODUCED with " + other.getLocalName() +
+                        " at " + pos + " -> new " + babyGender + " prey at " + offspringPos);
+                environment.createPreyAgent(offspringPos, babyGender);
 
                 // Energy cost
                 agent.setEnergy(agent.getEnergy() * 2 / 3);

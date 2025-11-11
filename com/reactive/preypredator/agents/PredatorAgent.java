@@ -69,7 +69,7 @@ public class PredatorAgent extends Agent {
     }
 
     public boolean canReproduce() {
-        return energy >= Config.PREDATOR_REPRODUCTION_THRESHOLD && reproductionCooldown == 0;
+        return energy >= Config.PREDATOR_MIN_REPRODUCTION_ENERGY && reproductionCooldown == 0;
     }
 
     public boolean isDead() {

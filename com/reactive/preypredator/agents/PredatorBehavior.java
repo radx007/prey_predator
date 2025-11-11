@@ -35,8 +35,8 @@ public class PredatorBehavior extends CyclicBehaviour {
 
         // Check if dead before action
         if (agent.isDead()) {
-            System.out.println("[" + agent.getLocalName() + "] Dying - Energy: " +
-                    agent.getEnergy() + ", Starvation: " + agent.getTicksWithoutFood());
+            System.out.println("[" + agent.getLocalName() + "] DIED - Energy: " +
+                    agent.getEnergy() + ", Starvation ticks: " + agent.getTicksWithoutFood());
             environment.removePredatorAgent(agent.getLocalName());
             agent.doDelete();
             return;
@@ -53,12 +53,14 @@ public class PredatorBehavior extends CyclicBehaviour {
         List<PreyAgent> nearbyPrey = perceivePrey(currentPos);
 
         // Decision making
+        boolean ateFood = false;
         if (!nearbyPrey.isEmpty()) {
             // Hunt prey
-            hunt(currentPos, nearbyPrey);
+            ateFood = hunt(currentPos, nearbyPrey);
         } else {
             // Random walk
             randomWalk(currentPos);
+            System.out.println("[" + agent.getLocalName() + "] Random walk to " + agent.getPosition());
         }
 
         // Try to reproduce
@@ -66,9 +68,13 @@ public class PredatorBehavior extends CyclicBehaviour {
             tryReproduce();
         }
 
-        // Energy consumption
-        agent.consumeEnergy(Config.PREDATOR_ENERGY_LOSS);
-        agent.setTicksWithoutFood(agent.getTicksWithoutFood() + 1);
+        // Energy consumption - ONLY if didn't eat
+        agent.consumeEnergy(Config.PREDATOR_MOVE_COST);
+
+        // FIXED: Only increment starvation if didn't eat this tick
+        if (!ateFood) {
+            agent.setTicksWithoutFood(agent.getTicksWithoutFood() + 1);
+        }
 
         // Update cooldowns
         if (agent.getReproductionCooldown() > 0) {
@@ -89,7 +95,7 @@ public class PredatorBehavior extends CyclicBehaviour {
         return nearby;
     }
 
-    private void hunt(Position currentPos, List<PreyAgent> preyList) {
+    private boolean hunt(Position currentPos, List<PreyAgent> preyList) {
         // Find closest prey
         PreyAgent target = null;
         int minDist = Integer.MAX_VALUE;
@@ -107,16 +113,24 @@ public class PredatorBehavior extends CyclicBehaviour {
 
             // If on same position, attempt capture
             if (currentPos.equals(targetPos)) {
-                if (random.nextDouble() < Config.PREDATOR_CAPTURE_PROBABILITY) {
+                if (random.nextDouble() < Config.PREDATOR_ATTACK_SUCCESS_RATE) {
                     // Successful capture
-                    agent.gainEnergy(Config.PREDATOR_ENERGY_GAIN_PREY);
+                    System.out.println("[" + agent.getLocalName() + "] CAUGHT PREY " + target.getLocalName() +
+                            " at " + currentPos + " (gained " + Config.PREDATOR_HUNT_GAIN + " energy)");
+                    agent.gainEnergy(Config.PREDATOR_HUNT_GAIN);
                     target.setEnergy(0); // Kill prey
+                    return true;  // Ate food
+                } else {
+                    System.out.println("[" + agent.getLocalName() + "] MISSED catching " + target.getLocalName() + " at " + currentPos);
                 }
             } else {
                 // Move towards prey
+                System.out.println("[" + agent.getLocalName() + "] Chasing " + target.getLocalName() +
+                        " from " + currentPos + " to " + targetPos);
                 moveTowards(currentPos, targetPos);
             }
         }
+        return false;  // Didn't eat
     }
 
     private void moveTowards(Position from, Position to) {
@@ -172,7 +186,10 @@ public class PredatorBehavior extends CyclicBehaviour {
             // Reproduce
             Position offspringPos = findEmptyNeighbor(pos);
             if (offspringPos != null) {
-                environment.createPredatorAgent(offspringPos, Gender.random());
+                Gender babyGender = Gender.random();
+                System.out.println("[" + agent.getLocalName() + "] REPRODUCED with " + other.getLocalName() +
+                        " at " + pos + " -> new " + babyGender + " predator at " + offspringPos);
+                environment.createPredatorAgent(offspringPos, babyGender);
 
                 // Energy cost
                 agent.setEnergy(agent.getEnergy() * 2 / 3);
