@@ -11,7 +11,8 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Reactive cyclic behavior for predator agents
+ * Fully reactive cyclic behavior for predator agents
+ * No ACL messages - reacts to environment state changes
  */
 public class PredatorBehavior extends CyclicBehaviour {
     private final PredatorAgent agent;
@@ -27,183 +28,170 @@ public class PredatorBehavior extends CyclicBehaviour {
 
     @Override
     public void action() {
-        // Wait for environment tick
-        if (!environment.isTickReady()) {
-            block(10);
-            return;
-        }
-
-        // Check if dead before action
-        if (agent.isDead()) {
-            System.out.println("[" + agent.getLocalName() + "] DIED - Energy: " +
-                    agent.getEnergy() + ", Starvation ticks: " + agent.getTicksWithoutFood());
-            environment.removePredatorAgent(agent.getLocalName());
-            agent.doDelete();
-            return;
-        }
-
-        // Perceive environment
-        Position currentPos = agent.getPosition();
-        if (currentPos == null) {
-            System.err.println("[" + agent.getLocalName() + "] ERROR: null position!");
-            environment.signalPredatorActionComplete();
-            return;
-        }
-
-        List<PreyAgent> nearbyPrey = perceivePrey(currentPos);
-
-        // Decision making
-        boolean ateFood = false;
-        if (!nearbyPrey.isEmpty()) {
-            // Hunt prey
-            ateFood = hunt(currentPos, nearbyPrey);
-        } else {
-            // Random walk
-            randomWalk(currentPos);
-            System.out.println("[" + agent.getLocalName() + "] Random walk to " + agent.getPosition());
-        }
-
-        // Try to reproduce
-        if (agent.canReproduce()) {
-            tryReproduce();
-        }
-
-        // Energy consumption - ONLY if didn't eat
-        agent.consumeEnergy(Config.PREDATOR_MOVE_COST);
-
-        // FIXED: Only increment starvation if didn't eat this tick
-        if (!ateFood) {
-            agent.setTicksWithoutFood(agent.getTicksWithoutFood() + 1);
-        }
-
-        // Update cooldowns
-        if (agent.getReproductionCooldown() > 0) {
-            agent.setReproductionCooldown(agent.getReproductionCooldown() - 1);
-        }
-
-        // Signal action complete
-        environment.signalPredatorActionComplete();
-    }
-
-    private List<PreyAgent> perceivePrey(Position pos) {
-        List<PreyAgent> nearby = new ArrayList<>();
-        for (PreyAgent prey : environment.getPreyAgents()) {
-            if (prey.getPosition().manhattanDistance(pos) <= Config.PREDATOR_VISION_RANGE) {
-                nearby.add(prey);
-            }
-        }
-        return nearby;
-    }
-
-    private boolean hunt(Position currentPos, List<PreyAgent> preyList) {
-        // Find closest prey
-        PreyAgent target = null;
-        int minDist = Integer.MAX_VALUE;
-
-        for (PreyAgent prey : preyList) {
-            int dist = prey.getPosition().manhattanDistance(currentPos);
-            if (dist < minDist) {
-                minDist = dist;
-                target = prey;
-            }
-        }
-
-        if (target != null) {
-            Position targetPos = target.getPosition();
-
-            // If on same position, attempt capture
-            if (currentPos.equals(targetPos)) {
-                if (random.nextDouble() < Config.PREDATOR_ATTACK_SUCCESS_RATE) {
-                    // Successful capture
-                    System.out.println("[" + agent.getLocalName() + "] CAUGHT PREY " + target.getLocalName() +
-                            " at " + currentPos + " (gained " + Config.PREDATOR_HUNT_GAIN + " energy)");
-                    agent.gainEnergy(Config.PREDATOR_HUNT_GAIN);
-                    target.setEnergy(0); // Kill prey
-                    return true;  // Ate food
-                } else {
-                    System.out.println("[" + agent.getLocalName() + "] MISSED catching " + target.getLocalName() + " at " + currentPos);
+        // Reactive waiting: block until environment activates tick
+        synchronized (environment.getTickLock()) {
+            while (!environment.isTickActive()) {
+                try {
+                    environment.getTickLock().wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
                 }
-            } else {
-                // Move towards prey
-                System.out.println("[" + agent.getLocalName() + "] Chasing " + target.getLocalName() +
-                        " from " + currentPos + " to " + targetPos);
-                moveTowards(currentPos, targetPos);
             }
         }
-        return false;  // Didn't eat
-    }
 
-    private void moveTowards(Position from, Position to) {
-        int dx = Integer.compare(to.x, from.x);
-        int dy = Integer.compare(to.y, from.y);
+        // If dead, do nothing
+        if (!agent.isAlive()) {
+            return;
+        }
 
-        Position newPos = new Position(from.x + dx, from.y + dy);
-        if (environment.getGrid().isValidPosition(newPos) &&
-                environment.getGrid().isWalkable(newPos)) {
-            moveTo(newPos);
+        Position currentPos = agent.getPosition();
+
+        // 1. Try to hunt nearby prey
+        List<PreyAgent> nearbyPrey = environment.getNearbyPreyAgents(
+                currentPos, 1
+        );
+
+        if (!nearbyPrey.isEmpty()) {
+            // EAT prey
+            PreyAgent prey = nearbyPrey.get(0);
+            prey.setAlive(false);
+            environment.removeDeadAgent(prey.getLocalName());
+
+            agent.setEnergy(agent.getEnergy() + Config.PREDATOR_ENERGY_FROM_PREY);
+            agent.resetTicksWithoutFood();
         } else {
-            randomWalk(from);
+            agent.incrementTicksWithoutFood();
         }
+
+        // 2. Seek prey within vision range
+        List<Position> preyPositions = environment.getNearbyPreyPositions(
+                currentPos, Config.PREDATOR_VISION_RANGE
+        );
+
+        Position nextPos;
+        if (!preyPositions.isEmpty()) {
+            // CHASE nearest prey
+            Position target = findNearest(currentPos, preyPositions);
+            nextPos = moveToward(currentPos, target);
+        } else {
+            // WANDER randomly
+            nextPos = randomWalk(currentPos);
+        }
+
+        // 3. Move to next position
+        if (nextPos != null && !nextPos.equals(currentPos)) {
+            environment.moveAgent(agent.getLocalName(), nextPos);
+            agent.setPosition(nextPos);
+            agent.consumeEnergy(Config.PREDATOR_ENERGY_MOVE_COST);
+        }
+
+        // 4. Attempt reproduction
+        if (agent.getReproductionCooldown() == 0 &&
+                agent.getEnergy() >= Config.PREDATOR_REPRODUCTION_THRESHOLD) {
+            attemptReproduction();
+        } else {
+            agent.decrementReproductionCooldown();
+        }
+
+        // 5. Check starvation/death
+        if (agent.getEnergy() <= Config.PREDATOR_STARVATION_THRESHOLD) {
+            agent.setAlive(false);
+            environment.removeDeadAgent(agent.getLocalName());
+        }
+
+        // Signal completion
+        environment.signalAgentCompletion();
     }
 
-    private void randomWalk(Position currentPos) {
-        List<Position> validMoves = getValidNeighbors(currentPos);
-        if (!validMoves.isEmpty()) {
-            Position newPos = validMoves.get(random.nextInt(validMoves.size()));
-            moveTo(newPos);
+    /**
+     * Move one step toward target
+     */
+    private Position moveToward(Position current, Position target) {
+        int dx = Integer.compare(target.x, current.x);
+        int dy = Integer.compare(target.y, current.y);
+
+        Position preferred = new Position(current.x + dx, current.y + dy);
+        if (environment.isPositionAvailable(preferred.x, preferred.y)) {
+            return preferred;
         }
+
+        // Try alternatives
+        List<Position> alternatives = getNeighbors(current);
+        if (!alternatives.isEmpty()) {
+            return alternatives.get(random.nextInt(alternatives.size()));
+        }
+
+        return current;
     }
 
-    private List<Position> getValidNeighbors(Position pos) {
+    /**
+     * Random walk
+     */
+    private Position randomWalk(Position current) {
+        List<Position> neighbors = getNeighbors(current);
+        return neighbors.isEmpty() ? current : neighbors.get(random.nextInt(neighbors.size()));
+    }
+
+    /**
+     * Get available neighboring positions
+     */
+    private List<Position> getNeighbors(Position pos) {
         List<Position> neighbors = new ArrayList<>();
-        int[][] directions = {{0,1}, {1,0}, {0,-1}, {-1,0}, {1,1}, {-1,1}, {1,-1}, {-1,-1}};
-
-        for (int[] dir : directions) {
-            Position newPos = new Position(pos.x + dir[0], pos.y + dir[1]);
-            if (environment.getGrid().isValidPosition(newPos) &&
-                    environment.getGrid().isWalkable(newPos)) {
-                neighbors.add(newPos);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0) continue;
+                int newX = pos.x + dx;
+                int newY = pos.y + dy;
+                if (environment.isPositionAvailable(newX, newY)) {
+                    neighbors.add(new Position(newX, newY));
+                }
             }
         }
         return neighbors;
     }
 
-    private void moveTo(Position newPos) {
-        environment.getGrid().setAgentPosition(agent.getLocalName(), newPos);
-        agent.setPosition(newPos);
+    /**
+     * Find nearest position from list
+     */
+    private Position findNearest(Position current, List<Position> positions) {
+        Position nearest = null;
+        double minDist = Double.MAX_VALUE;
+
+        for (Position pos : positions) {
+            double dist = current.distanceTo(pos);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = pos;
+            }
+        }
+
+        return nearest;
     }
 
-    private void tryReproduce() {
-        Position pos = agent.getPosition();
+    /**
+     * Attempt reproduction with nearby mate
+     */
+    private void attemptReproduction() {
+        List<PredatorAgent> nearbyPredators = environment.getNearbyPredatorAgents(
+                agent.getPosition(), 2
+        );
 
-        // Find nearby predators of opposite gender
-        for (PredatorAgent other : environment.getPredatorAgents()) {
-            if (other.getLocalName().equals(agent.getLocalName())) continue;
-            if (other.getGender() == agent.getGender()) continue;
-            if (!other.canReproduce()) continue;
-            if (other.getPosition().manhattanDistance(pos) > 1) continue;
+        for (PredatorAgent mate : nearbyPredators) {
+            if (mate.getGender() != agent.getGender() &&
+                    mate.getReproductionCooldown() == 0 &&
+                    mate.getEnergy() >= Config.PREDATOR_REPRODUCTION_THRESHOLD) {
 
-            // Reproduce
-            Position offspringPos = findEmptyNeighbor(pos);
-            if (offspringPos != null) {
-                Gender babyGender = Gender.random();
-                System.out.println("[" + agent.getLocalName() + "] REPRODUCED with " + other.getLocalName() +
-                        " at " + pos + " -> new " + babyGender + " predator at " + offspringPos);
-                environment.createPredatorAgent(offspringPos, babyGender);
+                // Create offspring
+                environment.createPredatorOffspring(agent.getPosition());
 
-                // Energy cost
-                agent.setEnergy(agent.getEnergy() * 2 / 3);
+                // Set cooldowns and reduce energy
                 agent.setReproductionCooldown(Config.PREDATOR_REPRODUCTION_COOLDOWN);
-
-                other.setEnergy(other.getEnergy() * 2 / 3);
-                other.setReproductionCooldown(Config.PREDATOR_REPRODUCTION_COOLDOWN);
+                mate.setReproductionCooldown(Config.PREDATOR_REPRODUCTION_COOLDOWN);
+                agent.setEnergy(agent.getEnergy() - 30);
+                mate.setEnergy(mate.getEnergy() - 30);
                 break;
             }
         }
-    }
-
-    private Position findEmptyNeighbor(Position pos) {
-        List<Position> valid = getValidNeighbors(pos);
-        return valid.isEmpty() ? null : valid.get(random.nextInt(valid.size()));
     }
 }

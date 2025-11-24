@@ -2,9 +2,7 @@ package com.reactive.preypredator.statistics;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.List;
 
 /**
  * Logs simulation statistics over time and writes to CSV
@@ -72,7 +70,6 @@ public class DataLogger {
 
         Statistics first = history.getFirst();
         Statistics last = history.getLast();
-
         System.out.println("\n=== Simulation Summary ===");
         System.out.println("Duration: " + last.getTick() + " ticks");
         System.out.println("Initial -> Final Prey: " + first.getPreyCount() + " -> " + last.getPreyCount());

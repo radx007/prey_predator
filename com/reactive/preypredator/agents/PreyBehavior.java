@@ -12,7 +12,8 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Reactive cyclic behavior for prey agents
+ * Fully reactive cyclic behavior for prey agents
+ * No ACL messages - reacts to environment state changes
  */
 public class PreyBehavior extends CyclicBehaviour {
     private final PreyAgent agent;
@@ -28,207 +29,229 @@ public class PreyBehavior extends CyclicBehaviour {
 
     @Override
     public void action() {
-        // Wait for environment tick
-        if (!environment.isTickReady()) {
-            block(10);
-            return;
-        }
-
-        // Check if dead before action
-        if (agent.isDead()) {
-            System.out.println("[" + agent.getLocalName() + "] DIED - Energy: " +
-                    agent.getEnergy() + ", Starvation ticks: " + agent.getTicksWithoutFood());
-            environment.removePreyAgent(agent.getLocalName());
-            agent.doDelete();
-            return;
-        }
-
-        // Perceive environment
-        Position currentPos = agent.getPosition();
-        if (currentPos == null) {
-            System.err.println("[" + agent.getLocalName() + "] ERROR: null position!");
-            environment.signalPreyActionComplete();
-            return;
-        }
-
-        List<PredatorAgent> nearbyPredators = perceivePredators(currentPos);
-
-        // Decision making
-        boolean ateGrass = false;
-        if (!nearbyPredators.isEmpty()) {
-            // Flee from predators
-            System.out.println("[" + agent.getLocalName() + "] FLEEING from " + nearbyPredators.size() + " predators");
-            flee(currentPos, nearbyPredators);
-        } else {
-            // Try to eat grass at current position
-            Cell currentCell = environment.getGrid().getCell(currentPos);
-            if (currentCell != null && currentCell.hasGrass()) {
-                currentCell.eatGrass();
-                agent.gainEnergy(Config.PREY_GRASS_GAIN);
-                ateGrass = true;
-                System.out.println("[" + agent.getLocalName() + "] ATE GRASS at " + currentPos +
-                        " (gained " + Config.PREY_GRASS_GAIN + " energy, now at " +
-                        agent.getEnergy() + "/" + Config.PREY_ENERGY_MAX + ")");
-            } else {
-                // Move towards grass or random walk
-                moveTowardsGrass(currentPos);
-            }
-        }
-
-        // Try to reproduce
-        if (agent.canReproduce()) {
-            tryReproduce();
-        }
-
-        // Energy consumption
-        agent.consumeEnergy(Config.PREY_MOVE_COST);
-
-        // FIXED: Only increment starvation if didn't eat grass this tick
-        if (!ateGrass) {
-            agent.setTicksWithoutFood(agent.getTicksWithoutFood() + 1);
-        }
-
-        // Update cooldowns
-        if (agent.getReproductionCooldown() > 0) {
-            agent.setReproductionCooldown(agent.getReproductionCooldown() - 1);
-        }
-
-        // Signal action complete
-        environment.signalPreyActionComplete();
-    }
-
-    private List<PredatorAgent> perceivePredators(Position pos) {
-        List<PredatorAgent> nearby = new ArrayList<>();
-        for (PredatorAgent predator : environment.getPredatorAgents()) {
-            if (predator.getPosition().manhattanDistance(pos) <= Config.PREY_VISION_RANGE) {
-                nearby.add(predator);
-            }
-        }
-        return nearby;
-    }
-
-    private void flee(Position currentPos, List<PredatorAgent> predators) {
-        // Calculate average predator position
-        double avgX = 0, avgY = 0;
-        for (PredatorAgent p : predators) {
-            avgX += p.getPosition().x;
-            avgY += p.getPosition().y;
-        }
-        avgX /= predators.size();
-        avgY /= predators.size();
-
-        // Move away from predators
-        int dx = currentPos.x > avgX ? 1 : -1;
-        int dy = currentPos.y > avgY ? 1 : -1;
-
-        Position newPos = new Position(currentPos.x + dx, currentPos.y + dy);
-        if (environment.getGrid().isValidPosition(newPos) &&
-                environment.getGrid().isWalkable(newPos)) {
-            moveTo(newPos);
-        } else {
-            randomWalk(currentPos);
-        }
-    }
-
-    private void moveTowardsGrass(Position currentPos) {
-        List<Position> grassPositions = findNearbyGrass(currentPos, 5);
-
-        if (!grassPositions.isEmpty()) {
-            Position target = grassPositions.get(random.nextInt(grassPositions.size()));
-            System.out.println("[" + agent.getLocalName() + "] Moving towards grass from " +
-                    currentPos + " to " + target);
-            moveTowards(currentPos, target);
-        } else {
-            System.out.println("[" + agent.getLocalName() + "] No grass nearby, random walk");
-            randomWalk(currentPos);
-        }
-    }
-
-    private List<Position> findNearbyGrass(Position center, int range) {
-        List<Position> grassPos = new ArrayList<>();
-        for (int dx = -range; dx <= range; dx++) {
-            for (int dy = -range; dy <= range; dy++) {
-                Position pos = new Position(center.x + dx, center.y + dy);
-                Cell cell = environment.getGrid().getCell(pos);
-                if (cell != null && cell.hasGrass()) {
-                    grassPos.add(pos);
+        // Reactive waiting: block until environment activates tick
+        synchronized (environment.getTickLock()) {
+            while (!environment.isTickActive()) {
+                try {
+                    environment.getTickLock().wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
                 }
             }
         }
-        return grassPos;
-    }
 
-    private void moveTowards(Position from, Position to) {
-        int dx = Integer.compare(to.x, from.x);
-        int dy = Integer.compare(to.y, from.y);
+        // If dead, do nothing
+        if (!agent.isAlive()) {
+            return;
+        }
 
-        Position newPos = new Position(from.x + dx, from.y + dy);
-        if (environment.getGrid().isValidPosition(newPos) &&
-                environment.getGrid().isWalkable(newPos)) {
-            moveTo(newPos);
+        // 1. Try to eat grass if available
+        Position currentPos = agent.getPosition();
+        Cell currentCell = environment.getGrid().getCell(currentPos.x, currentPos.y);
+
+        if (currentCell != null && currentCell.hasGrass()) {
+            currentCell.eatGrass();
+            agent.setEnergy(agent.getEnergy() + Config.PREY_ENERGY_FROM_GRASS);
+            agent.resetTicksWithoutFood();
         } else {
-            randomWalk(from);
+            agent.incrementTicksWithoutFood();
         }
+
+        // 2. Check for nearby predators and flee
+        List<Position> predatorPositions = environment.getNearbyPredatorPositions(
+                currentPos, Config.PREY_VISION_RANGE
+        );
+
+        Position nextPos;
+        if (!predatorPositions.isEmpty()) {
+            // FLEE from nearest predator
+            nextPos = fleeFromPredators(currentPos, predatorPositions);
+        } else {
+            // SEEK grass
+            nextPos = seekGrass(currentPos);
+        }
+
+        // 3. Move to next position
+        if (nextPos != null && !nextPos.equals(currentPos)) {
+            environment.moveAgent(agent.getLocalName(), nextPos);
+            agent.setPosition(nextPos);
+            agent.consumeEnergy(Config.PREY_ENERGY_MOVE_COST);
+        }
+
+        // 4. Attempt reproduction
+        if (agent.getReproductionCooldown() == 0 &&
+                agent.getEnergy() >= Config.PREY_REPRODUCTION_THRESHOLD) {
+            attemptReproduction();
+        } else {
+            agent.decrementReproductionCooldown();
+        }
+
+        // 5. Check starvation/death
+        if (agent.getEnergy() <= Config.PREY_STARVATION_THRESHOLD) {
+            agent.setAlive(false);
+            environment.removeDeadAgent(agent.getLocalName());
+        }
+
+        // Signal completion
+        environment.signalAgentCompletion();
     }
 
-    private void randomWalk(Position currentPos) {
-        List<Position> validMoves = getValidNeighbors(currentPos);
-        if (!validMoves.isEmpty()) {
-            Position newPos = validMoves.get(random.nextInt(validMoves.size()));
-            moveTo(newPos);
+    /**
+     * Flee away from predators
+     */
+    private Position fleeFromPredators(Position current, List<Position> predators) {
+        Position nearest = findNearest(current, predators);
+        if (nearest == null) return current;
+
+        // Move in opposite direction
+        int dx = current.x - nearest.x;
+        int dy = current.y - nearest.y;
+
+        // Normalize and amplify
+        double magnitude = Math.sqrt(dx * dx + dy * dy);
+        if (magnitude > 0) {
+            dx = (int) Math.round(dx / magnitude);
+            dy = (int) Math.round(dy / magnitude);
         }
+
+        List<Position> candidates = new ArrayList<>();
+        for (int i = -1; i <= 1; i++) {
+            for (int j = -1; j <= 1; j++) {
+                if (i == 0 && j == 0) continue;
+                int newX = current.x + i;
+                int newY = current.y + j;
+
+                if (environment.isPositionAvailable(newX, newY)) {
+                    Position candidate = new Position(newX, newY);
+                    // Prefer positions away from predator
+                    if (i == dx || j == dy) {
+                        candidates.add(0, candidate); // Priority
+                    } else {
+                        candidates.add(candidate);
+                    }
+                }
+            }
+        }
+
+        return candidates.isEmpty() ? current : candidates.get(0);
     }
 
-    private List<Position> getValidNeighbors(Position pos) {
+    /**
+     * Seek nearby grass
+     */
+    private Position seekGrass(Position current) {
+        List<Position> grassPositions = new ArrayList<>();
+
+        for (int dx = -Config.PREY_VISION_RANGE; dx <= Config.PREY_VISION_RANGE; dx++) {
+            for (int dy = -Config.PREY_VISION_RANGE; dy <= Config.PREY_VISION_RANGE; dy++) {
+                int x = current.x + dx;
+                int y = current.y + dy;
+
+                Cell cell = environment.getGrid().getCell(x, y);
+                if (cell != null && cell.hasGrass()) {
+                    grassPositions.add(new Position(x, y));
+                }
+            }
+        }
+
+        if (!grassPositions.isEmpty()) {
+            Position target = findNearest(current, grassPositions);
+            return moveToward(current, target);
+        }
+
+        // Random walk if no grass visible
+        return randomWalk(current);
+    }
+
+    /**
+     * Move one step toward target
+     */
+    private Position moveToward(Position current, Position target) {
+        int dx = Integer.compare(target.x, current.x);
+        int dy = Integer.compare(target.y, current.y);
+
+        Position preferred = new Position(current.x + dx, current.y + dy);
+        if (environment.isPositionAvailable(preferred.x, preferred.y)) {
+            return preferred;
+        }
+
+        // Try alternatives
+        List<Position> alternatives = getNeighbors(current);
+        if (!alternatives.isEmpty()) {
+            return alternatives.get(random.nextInt(alternatives.size()));
+        }
+
+        return current;
+    }
+
+    /**
+     * Random walk
+     */
+    private Position randomWalk(Position current) {
+        List<Position> neighbors = getNeighbors(current);
+        return neighbors.isEmpty() ? current : neighbors.get(random.nextInt(neighbors.size()));
+    }
+
+    /**
+     * Get available neighboring positions
+     */
+    private List<Position> getNeighbors(Position pos) {
         List<Position> neighbors = new ArrayList<>();
-        int[][] directions = {{0,1}, {1,0}, {0,-1}, {-1,0}, {1,1}, {-1,1}, {1,-1}, {-1,-1}};
-
-        for (int[] dir : directions) {
-            Position newPos = new Position(pos.x + dir[0], pos.y + dir[1]);
-            if (environment.getGrid().isValidPosition(newPos) &&
-                    environment.getGrid().isWalkable(newPos)) {
-                neighbors.add(newPos);
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0) continue;
+                int newX = pos.x + dx;
+                int newY = pos.y + dy;
+                if (environment.isPositionAvailable(newX, newY)) {
+                    neighbors.add(new Position(newX, newY));
+                }
             }
         }
         return neighbors;
     }
 
-    private void moveTo(Position newPos) {
-        environment.getGrid().setAgentPosition(agent.getLocalName(), newPos);
-        agent.setPosition(newPos);
+    /**
+     * Find nearest position from list
+     */
+    private Position findNearest(Position current, List<Position> positions) {
+        Position nearest = null;
+        double minDist = Double.MAX_VALUE;
+
+        for (Position pos : positions) {
+            double dist = current.distanceTo(pos);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = pos;
+            }
+        }
+
+        return nearest;
     }
 
-    private void tryReproduce() {
-        Position pos = agent.getPosition();
+    /**
+     * Attempt reproduction with nearby mate
+     */
+    private void attemptReproduction() {
+        List<PreyAgent> nearbyPrey = environment.getNearbyPreyAgents(
+                agent.getPosition(), 2
+        );
 
-        // Find nearby prey of opposite gender
-        for (PreyAgent other : environment.getPreyAgents()) {
-            if (other.getLocalName().equals(agent.getLocalName())) continue;
-            if (other.getGender() == agent.getGender()) continue;
-            if (!other.canReproduce()) continue;
-            if (other.getPosition().manhattanDistance(pos) > 1) continue;
+        for (PreyAgent mate : nearbyPrey) {
+            if (mate.getGender() != agent.getGender() &&
+                    mate.getReproductionCooldown() == 0 &&
+                    mate.getEnergy() >= Config.PREY_REPRODUCTION_THRESHOLD) {
 
-            // Reproduce
-            Position offspringPos = findEmptyNeighbor(pos);
-            if (offspringPos != null) {
-                Gender babyGender = Gender.random();
-                System.out.println("[" + agent.getLocalName() + "] REPRODUCED with " + other.getLocalName() +
-                        " at " + pos + " -> new " + babyGender + " prey at " + offspringPos);
-                environment.createPreyAgent(offspringPos, babyGender);
+                // Create offspring
+                environment.createPreyOffspring(agent.getPosition());
 
-                // Energy cost
-                agent.setEnergy(agent.getEnergy() * 2 / 3);
+                // Set cooldowns and reduce energy
                 agent.setReproductionCooldown(Config.PREY_REPRODUCTION_COOLDOWN);
-
-                other.setEnergy(other.getEnergy() * 2 / 3);
-                other.setReproductionCooldown(Config.PREY_REPRODUCTION_COOLDOWN);
+                mate.setReproductionCooldown(Config.PREY_REPRODUCTION_COOLDOWN);
+                agent.setEnergy(agent.getEnergy() - 20);
+                mate.setEnergy(mate.getEnergy() - 20);
                 break;
             }
         }
-    }
-
-    private Position findEmptyNeighbor(Position pos) {
-        List<Position> valid = getValidNeighbors(pos);
-        return valid.isEmpty() ? null : valid.get(random.nextInt(valid.size()));
     }
 }

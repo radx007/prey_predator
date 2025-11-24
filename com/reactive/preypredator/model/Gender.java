@@ -3,11 +3,10 @@ package com.reactive.preypredator.model;
 import java.util.Random;
 
 /**
- * Gender enum for agents
+ * Gender enum for reproduction mechanics
  */
 public enum Gender {
-    MALE,
-    FEMALE;
+    MALE, FEMALE;
 
     private static final Random random = new Random();
 

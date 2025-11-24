@@ -1,99 +1,85 @@
 package com.reactive.preypredator.config;
 
+import com.reactive.preypredator.model.PlacementMode;
+
 /**
- * Configuration parameters tuned for classic Lotka-Volterra oscillating dynamics
- *
- * KEY PRINCIPLES FOR OSCILLATIONS:
- * 1. Prey must reproduce FASTER than predators
- * 2. Predators must have HIGHER energy costs (forcing dependence on prey)
- * 3. Grass must regrow fast enough to sustain prey recovery
- * 4. Vision ranges create the "lag effect" - predators don't immediately find all prey
+ * AGGRESSIVE REBALANCE - Predators must be able to control prey
  */
 public class Config {
-
     // ================= GRID =================
-    public static final int GRID_WIDTH = 40;
-    public static final int GRID_HEIGHT = 40;
+    public static int GRID_WIDTH = 30;
+    public static int GRID_HEIGHT = 30;
+
+    // ================= PLACEMENT MODE =================
+    public static PlacementMode PLACEMENT_MODE = PlacementMode.FIXED_PATTERN;
 
     // ================= INITIAL POPULATIONS =================
-    // Start with MORE prey than predators (typical ratio 3:1 to 5:1)
-    public static final int INITIAL_PREY_COUNT = 100;
-    public static final int INITIAL_PREDATOR_COUNT = 25;
+    public static int INITIAL_PREY_COUNT = 100;  // Reduced
+    public static int INITIAL_PREDATOR_COUNT = 25;  // Increased
 
     // ================= PREY PARAMETERS =================
-    // Prey: Fast reproduction, low energy costs
-    public static final int PREY_ENERGY_START = 50;
-    public static final int PREY_ENERGY_MAX = 100;
-    public static final int PREY_VISION_RANGE = 6;           // Good grass detection
-    public static final int PREY_MOVE_COST = 1;              // VERY LOW - prey are efficient
-    public static final int PREY_GRASS_GAIN = 12;            // Good energy from grass
-    public static final int PREY_REPRODUCTION_COOLDOWN = 35; // FASTER reproduction
-    public static final double PREY_REPRODUCTION_ENERGY_COST = 1.3;
-    public static final int PREY_MIN_REPRODUCTION_ENERGY = 50; // Lower threshold
-    public static final int PREY_STARVATION_LIMIT = 40;      // More resilient to starvation
+    // HEAVILY NERFED - Prey reproducing way too fast
+    public static int PREY_ENERGY_START = 120;
+    public static int PREY_ENERGY_MAX = 180;
+    public static int PREY_ENERGY_FROM_GRASS = 40;  // Reduced from 48
+    public static double PREY_ENERGY_MOVE_COST = 1.0;  // Increased from 0.7
+    public static int PREY_REPRODUCTION_THRESHOLD = 100;  // Much harder (was 85)
+    public static int PREY_REPRODUCTION_COOLDOWN = 6;  // Much slower (was 4)
+    public static int PREY_STARVATION_THRESHOLD = 5;
+    public static int PREY_VISION_RANGE = 7;
 
     // ================= PREDATOR PARAMETERS =================
-    // Predators: Slower reproduction, HIGH energy costs (creates lag)
-    public static final int PREDATOR_ENERGY_START = 95;
-    public static final int PREDATOR_ENERGY_MAX = 140;
-    public static final int PREDATOR_VISION_RANGE = 7;         // Slightly better than prey
-    public static final int PREDATOR_MOVE_COST = 5;       // LOWER than before - too high kills them
-    public static final int PREDATOR_HUNT_GAIN = 25;           // Good reward for hunting
-    public static final double PREDATOR_ATTACK_SUCCESS_RATE = 0.5; // Better success rate
-    public static final int PREDATOR_REPRODUCTION_COOLDOWN = 50; // SLOWER reproduction (lag effect)
-    public static final double PREDATOR_REPRODUCTION_ENERGY_COST = 1.4;
-    public static final int PREDATOR_MIN_REPRODUCTION_ENERGY = 58; // Higher threshold
-    public static final int PREDATOR_STARVATION_LIMIT = 20;    // More time to find food
+    // HEAVILY BUFFED - Predators need to hunt effectively
+    public static int PREDATOR_ENERGY_START = 110;  // Higher
+    public static int PREDATOR_ENERGY_MAX = 160;  // Higher (was 140)
+    public static int PREDATOR_ENERGY_FROM_PREY = 80;  // Much higher reward (was 70)
+    public static double PREDATOR_ENERGY_MOVE_COST = 2.5;  // Lower cost (was 3.5)
+    public static int PREDATOR_REPRODUCTION_THRESHOLD = 110;  // Easier (was 120)
+    public static int PREDATOR_REPRODUCTION_COOLDOWN = 5;  // Faster (was 7)
+    public static int PREDATOR_STARVATION_THRESHOLD = 12;  // Medium (was 15)
+    public static int PREDATOR_VISION_RANGE = 8;  // Increased (was 6)
 
-    // ================= ENVIRONMENT PARAMETERS =================
-    // Fast grass regrowth = stable prey population base
-    public static final int GRASS_REGROWTH_TIME = 18;          // FASTER regrowth
-    public static final double INITIAL_GRASS_COVERAGE = 0.4;  // MORE grass
-    public static final double OBSTACLE_COVERAGE = 0.02;       // FEWER obstacles
+    // ================= ENVIRONMENT =================
+    public static int GRASS_REGROWTH_TICKS = 15;  // Slower (was 11)
+    public static double GRASS_INITIAL_COVERAGE = 0.75;  // Less grass (was 0.82)
+    public static double OBSTACLE_COVERAGE = 0.04;  // More obstacles
 
-    // ================= SIMULATION PARAMETERS =================
-    public static final int TICK_DURATION_MS = 80;             // Slightly faster
-    public static final int MAX_TICKS = 8000;                  // Longer to see multiple cycles
-    public static final int CELL_SIZE = 18;
+    // ================= SIMULATION =================
+    public static int TICK_DURATION_MS = 500;
+    public static int MAX_TICKS = 5000;
+    public static String CSV_OUTPUT_FILE = "simulation_data.csv";
+
+    // ================= UI =================
+    public static final int CELL_SIZE = 15;
     public static final int UI_WIDTH = GRID_WIDTH * CELL_SIZE;
-    public static final int UI_HEIGHT = GRID_HEIGHT * CELL_SIZE + 150;
+    public static final int UI_HEIGHT = GRID_HEIGHT * CELL_SIZE;
 
-    // ================= LOTKA-VOLTERRA TUNING NOTES =================
-    /*
-     * ACHIEVING OSCILLATIONS:
-     *
-     * 1. PREY BOOM PHASE:
-     *    - Low predators + abundant grass = prey reproduce rapidly
-     *    - Prey population increases exponentially
-     *
-     * 2. PREDATOR RESPONSE (LAG):
-     *    - More prey = more food for predators
-     *    - Predators reproduce (but SLOWER due to cooldown=50 vs prey=25)
-     *    - This delay creates the phase shift
-     *
-     * 3. PREDATOR BOOM / PREY CRASH:
-     *    - Many predators hunt efficiently
-     *    - Prey population decreases rapidly
-     *
-     * 4. PREDATOR CRASH:
-     *    - Few prey = predators starve
-     *    - High movement costs accelerate predator decline
-     *
-     * 5. RECOVERY:
-     *    - Few predators = prey can reproduce safely
-     *    - Fast grass regrowth supports recovery
-     *    - Cycle repeats
-     *
-     * KEY RATIOS FOR OSCILLATIONS:
-     * - Prey reproduction cooldown / Predator reproduction cooldown ≈ 0.5
-     * - Initial Prey / Initial Predators ≈ 4:1
-     * - Predator move cost should be 2-4x prey move cost
-     * - Grass regrowth should be < 25 ticks for stable cycles
-     *
-     * TROUBLESHOOTING:
-     * - If predators die out: Increase PREDATOR_HUNT_GAIN or decrease PREDATOR_MOVE_COST
-     * - If prey die out: Increase GRASS_REGROWTH or INITIAL_GRASS_COVERAGE
-     * - If no oscillations: Increase difference between reproduction cooldowns
-     * - If oscillations decay: Adjust energy costs and gains for balance
-     */
+    public static void resetToDefaults() {
+        GRID_WIDTH = 30;
+        GRID_HEIGHT = 30;
+        PLACEMENT_MODE = PlacementMode.FIXED_PATTERN;
+        INITIAL_PREY_COUNT = 100;
+        INITIAL_PREDATOR_COUNT = 25;
+        PREY_ENERGY_START = 120;
+        PREY_ENERGY_MAX = 180;
+        PREY_ENERGY_FROM_GRASS = 40;
+        PREY_ENERGY_MOVE_COST = 1.0;
+        PREY_REPRODUCTION_THRESHOLD = 100;
+        PREY_REPRODUCTION_COOLDOWN = 6;
+        PREY_STARVATION_THRESHOLD = 5;
+        PREY_VISION_RANGE = 7;
+        PREDATOR_ENERGY_START = 110;
+        PREDATOR_ENERGY_MAX = 160;
+        PREDATOR_ENERGY_FROM_PREY = 80;
+        PREDATOR_ENERGY_MOVE_COST = 2.5;
+        PREDATOR_REPRODUCTION_THRESHOLD = 110;
+        PREDATOR_REPRODUCTION_COOLDOWN = 5;
+        PREDATOR_STARVATION_THRESHOLD = 12;
+        PREDATOR_VISION_RANGE = 8;
+        GRASS_REGROWTH_TICKS = 15;
+        GRASS_INITIAL_COVERAGE = 0.75;
+        OBSTACLE_COVERAGE = 0.04;
+        TICK_DURATION_MS = 500;
+        MAX_TICKS = 5000;
+    }
 }

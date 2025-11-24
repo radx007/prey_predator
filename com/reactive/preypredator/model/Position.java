@@ -1,14 +1,13 @@
 package com.reactive.preypredator.model;
 
-import java.io.Serializable;
 import java.util.Objects;
 
 /**
  * Represents a 2D position in the grid
  */
-public class Position implements Serializable {
-    public int x;
-    public int y;
+public class Position {
+    public final int x;
+    public final int y;
 
     public Position(int x, int y) {
         this.x = x;
@@ -21,18 +20,10 @@ public class Position implements Serializable {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    public int manhattanDistance(Position other) {
-        return Math.abs(this.x - other.x) + Math.abs(this.y - other.y);
-    }
-
-    public Position copy() {
-        return new Position(x, y);
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (!(o instanceof Position)) return false;
         Position position = (Position) o;
         return x == position.x && y == position.y;
     }

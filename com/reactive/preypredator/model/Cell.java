@@ -1,8 +1,5 @@
 package com.reactive.preypredator.model;
 
-/**
- * Represents a single cell in the grid
- */
 public class Cell {
     private CellType type;
     private boolean hasGrass;
@@ -43,4 +40,3 @@ public class Cell {
         return type != CellType.OBSTACLE;
     }
 }
-

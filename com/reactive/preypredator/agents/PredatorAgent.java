@@ -26,53 +26,79 @@ public class PredatorAgent extends Agent {
             this.position = (Position) args[1];
             this.gender = (Gender) args[2];
             String name = (String) args[3];
+
+            this.energy = Config.PREDATOR_ENERGY_START;
+            this.reproductionCooldown = 0;
+            this.ticksWithoutFood = 0;
+            this.alive = true;
+
+            // Register with environment
+            environment.registerPredatorAgent(this);
+
+            // Add reactive behavior
+            addBehaviour(new PredatorBehavior(this, environment));
         }
-
-        this.energy = Config.PREDATOR_ENERGY_START;
-        this.reproductionCooldown = 0;
-        this.ticksWithoutFood = 0;
-        this.alive = true;
-
-        // Register with environment
-        environment.registerPredatorAgent(getLocalName(), this);
-
-        // Add cyclic behavior
-        addBehaviour(new PredatorBehavior(this, environment));
-    }
-
-    @Override
-    protected void takeDown() {
-        alive = false;
     }
 
     // Getters and setters
-    public Position getPosition() { return position; }
-    public void setPosition(Position position) { this.position = position; }
-    public void setEnvironment(ReactiveEnvironment env) { this.environment = env; }
-    public void setGender(Gender g) { this.gender = g; }
-    public int getEnergy() { return energy; }
-    public void setEnergy(int energy) { this.energy = Math.min(energy, Config.PREDATOR_ENERGY_MAX); }
-    public Gender getGender() { return gender; }
-    public int getReproductionCooldown() { return reproductionCooldown; }
-    public void setReproductionCooldown(int cooldown) { this.reproductionCooldown = cooldown; }
-    public int getTicksWithoutFood() { return ticksWithoutFood; }
-    public void setTicksWithoutFood(int ticks) { this.ticksWithoutFood = ticks; }
-    public boolean isAlive() { return alive; }
-
-    public void consumeEnergy(int amount) {
-        energy = Math.max(0, energy - amount);
+    public Position getPosition() {
+        return position;
     }
 
-    public void gainEnergy(int amount) {
-        energy = Math.min(Config.PREDATOR_ENERGY_MAX, energy + amount);
+    public void setPosition(Position position) {
+        this.position = position;
+    }
+
+    public int getEnergy() {
+        return energy;
+    }
+
+    public void setEnergy(int energy) {
+        this.energy = Math.min(energy, Config.PREDATOR_ENERGY_MAX);
+    }
+
+    public Gender getGender() {
+        return gender;
+    }
+
+    public boolean isAlive() {
+        return alive;
+    }
+
+    public void setAlive(boolean alive) {
+        this.alive = alive;
+    }
+
+    public int getReproductionCooldown() {
+        return reproductionCooldown;
+    }
+
+    public void setReproductionCooldown(int cooldown) {
+        this.reproductionCooldown = cooldown;
+    }
+
+    public void decrementReproductionCooldown() {
+        if (reproductionCooldown > 0) {
+            reproductionCooldown--;
+        }
+    }
+
+    public int getTicksWithoutFood() {
+        return ticksWithoutFood;
+    }
+
+    public void incrementTicksWithoutFood() {
+        ticksWithoutFood++;
+    }
+
+    public void resetTicksWithoutFood() {
         ticksWithoutFood = 0;
     }
 
-    public boolean canReproduce() {
-        return energy >= Config.PREDATOR_MIN_REPRODUCTION_ENERGY && reproductionCooldown == 0;
-    }
-
-    public boolean isDead() {
-        return energy <= 0 || ticksWithoutFood >= Config.PREDATOR_STARVATION_LIMIT;
+    public void consumeEnergy(double amount) {
+        energy -= (int) amount;
+        if (energy <= 0) {
+            alive = false;
+        }
     }
 }
