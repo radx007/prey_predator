@@ -2,87 +2,92 @@ package com.reactive.preypredator.statistics;
 
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.LinkedList;
 
 /**
- * Logs simulation statistics over time and writes to CSV
+ * Enhanced DataLogger with detailed console output for debugging
  */
 public class DataLogger {
-    private LinkedList<Statistics> history;
-    private String outputFile;
-    private boolean headerWritten = false;
-    private static boolean fileCleared = false;
+    private final String csvFilePath;
+    private final LinkedList<Statistics> history;
+    private PrintWriter csvWriter;
 
-    public DataLogger(String outputFile) {
+    public DataLogger(String csvFilePath) {
+        this.csvFilePath = csvFilePath;
         this.history = new LinkedList<>();
-        this.outputFile = outputFile;
-        clearFile();
+        initializeCSV();
     }
 
-    /**
-     * Clear the CSV file content when simulation starts
-     */
-    private void clearFile() {
-        if (!fileCleared) {
-            try (FileWriter writer = new FileWriter(outputFile, false)) {
-                writer.write("");
-                fileCleared = true;
-                System.out.println("[DataLogger] Cleared old simulation data from " + outputFile);
-            } catch (IOException e) {
-                System.err.println("Error clearing CSV file: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Log a statistics snapshot and write to file
-     */
-    public synchronized void log(Statistics stats) {
-        history.add(stats);
-        writeToFile(stats);
-    }
-
-    private void writeToFile(Statistics stats) {
-        try (FileWriter writer = new FileWriter(outputFile, true)) {
-            if (!headerWritten && history.size() == 1) {
-                writer.write(Statistics.getCSVHeader() + "\n");
-                headerWritten = true;
-            }
-            writer.write(stats.toCSV() + "\n");
+    private void initializeCSV() {
+        try {
+            csvWriter = new PrintWriter(new FileWriter(csvFilePath));
+            csvWriter.println("Tick,PreyCount,PredatorCount,AvgPreyEnergy,AvgPredatorEnergy,GrassCoverage");
         } catch (IOException e) {
-            System.err.println("Error writing to CSV: " + e.getMessage());
+            System.err.println("Error initializing CSV: " + e.getMessage());
         }
     }
 
-    public synchronized LinkedList<Statistics> getHistory() {
-        return new LinkedList<>(history);
+    public void log(Statistics stats) {
+        history.add(stats);
+
+        // Write to CSV
+        if (csvWriter != null) {
+            csvWriter.printf("%d,%d,%d,%.2f,%.2f,%.4f%n",
+                    stats.getTick(),
+                    stats.getPreyCount(),
+                    stats.getPredatorCount(),
+                    stats.getAvgPreyEnergy(),
+                    stats.getAvgPredatorEnergy(),
+                    stats.getGrassCoverage()
+            );
+            csvWriter.flush();
+        }
+
+        // DETAILED CONSOLE OUTPUT every 5 ticks or first 20 ticks
+        if (stats.getTick() % 5 == 0 || stats.getTick() <= 20) {
+            System.out.println("═══════════════════════════════════════════════════════");
+            System.out.printf("TICK %d SUMMARY:%n", stats.getTick());
+            System.out.println("───────────────────────────────────────────────────────");
+            System.out.printf("  Prey:      %3d  (Avg Energy: %.1f)%n",
+                    stats.getPreyCount(), stats.getAvgPreyEnergy());
+            System.out.printf("  Predators: %3d  (Avg Energy: %.1f)%n",
+                    stats.getPredatorCount(), stats.getAvgPredatorEnergy());
+            System.out.printf("  Grass:     %.1f%%%n", stats.getGrassCoverage() * 100);
+
+            // Calculate ratio
+            if (stats.getPredatorCount() > 0) {
+                double ratio = (double) stats.getPreyCount() / stats.getPredatorCount();
+                System.out.printf("  Prey:Predator Ratio: %.2f:1%n", ratio);
+            }
+            System.out.println("═══════════════════════════════════════════════════════");
+        }
     }
 
-    public synchronized Statistics getLatest() {
+    public LinkedList<Statistics> getHistory() {
+        return history;
+    }
+
+    public Statistics getLatest() {
         return history.isEmpty() ? null : history.getLast();
     }
 
     public void printSummary() {
-        if (history.isEmpty()) {
-            System.out.println("No data logged.");
-            return;
+        System.out.println("\n════════════════════════════════════════════════════════");
+        System.out.println("                   SIMULATION SUMMARY                    ");
+        System.out.println("════════════════════════════════════════════════════════");
+        System.out.println("Total ticks: " + history.size());
+
+        if (!history.isEmpty()) {
+            Statistics last = history.getLast();
+            System.out.printf("Final prey count: %d%n", last.getPreyCount());
+            System.out.printf("Final predator count: %d%n", last.getPredatorCount());
+            System.out.printf("Final grass coverage: %.2f%%%n", last.getGrassCoverage() * 100);
         }
+        System.out.println("════════════════════════════════════════════════════════\n");
 
-        Statistics first = history.getFirst();
-        Statistics last = history.getLast();
-        System.out.println("\n=== Simulation Summary ===");
-        System.out.println("Duration: " + last.getTick() + " ticks");
-        System.out.println("Initial -> Final Prey: " + first.getPreyCount() + " -> " + last.getPreyCount());
-        System.out.println("Initial -> Final Predators: " + first.getPredatorCount() + " -> " + last.getPredatorCount());
-        System.out.println("Final Grass Coverage: " + String.format("%.2f%%", last.getGrassCoverage() * 100));
-        System.out.println("==========================");
-    }
-
-    public String getOutputFile() {
-        return outputFile;
-    }
-
-    public synchronized void clear() {
-        history.clear();
+        if (csvWriter != null) {
+            csvWriter.close();
+        }
     }
 }

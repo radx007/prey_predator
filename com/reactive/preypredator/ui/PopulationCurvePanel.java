@@ -166,4 +166,8 @@ public class PopulationCurvePanel extends JPanel {
         int y = getHeight() / 2;
         g2d.drawString(message, x, y);
     }
+    public void setEnvironment(ReactiveEnvironment environment) {
+        this.environment = environment;
+    }
+
 }

@@ -186,4 +186,8 @@ public class GridPanel extends JPanel {
             gridBuffer = null;
         }
     }
+    public void setEnvironment(ReactiveEnvironment environment) {
+        this.environment = environment;
+    }
+
 }

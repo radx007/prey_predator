@@ -2,170 +2,211 @@ package com.reactive.preypredator;
 
 import com.reactive.preypredator.config.Config;
 import com.reactive.preypredator.environment.ReactiveEnvironment;
-import com.reactive.preypredator.ui.SimulationUI;
-import com.reactive.preypredator.ui.StartupDialog;
+import com.reactive.preypredator.ui.*;
 
 import javax.swing.*;
+import java.awt.*;
 
 /**
- * Main entry point with throttled UI updates
+ * Main application with startup menu and card layout
  */
-public class MainSimulation {
-    private static volatile boolean shouldRestart = false;
-    private static volatile boolean showStartupDialog = true;
-    private static ReactiveEnvironment environment;
-    private static SimulationUI ui;
-    private static long lastUIUpdate = 0;
-    private static final long UI_UPDATE_INTERVAL = 50; // Update UI every 50ms minimum
+public class MainSimulation extends JFrame {
+    private CardLayout cardLayout;
+    private JPanel mainPanel;
 
-    public static void main(String[] args) {
-        // Set look and feel
-        try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception e) {
-            // Use default look and feel
-        }
+    private StartupMenu startupMenu;
+    private ConfigEditor configEditor;
+    private JPanel executionPanel;
 
-        while (true) {
-            // Show startup dialog
-            if (showStartupDialog) {
-                StartupDialog startupDialog = StartupDialog.showDialog();
+    private GridPanel gridPanel;
+    private PopulationCurvePanel curvePanel;
+    private JPanel controlPanel;
 
-                if (!startupDialog.shouldStartSimulation()) {
-                    System.out.println("Simulation cancelled by user.");
-                    break;
-                }
+    private ReactiveEnvironment environment;
+    private Thread simulationThread;
+    private volatile boolean running = false;
+    private volatile boolean paused = false;
 
-                System.out.println("\n" + (startupDialog.isUseDefaultConfig() ?
-                        "Using default configuration" : "Using custom configuration"));
-            }
+    public MainSimulation() {
+        setTitle("Lotka-Volterra Multi-Agent Simulation");
+        setSize(1400, 900);
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
 
-            showStartupDialog = false;
-            shouldRestart = false;
+        cardLayout = new CardLayout();
+        mainPanel = new JPanel(cardLayout);
 
-            runSimulation();
+        setupPanels();
+        add(mainPanel);
 
-            // Check if we should restart or show startup dialog again
-            if (!shouldRestart) {
-                break;
-            }
-        }
-
-        System.out.println("\nProgram terminated.");
-        System.exit(0);
+        cardLayout.show(mainPanel, "STARTUP");
     }
 
-    private static void runSimulation() {
-        System.out.println("\n==========================================================");
-        System.out.println("Starting REACTIVE Predator-Prey Multi-Agent Simulation");
-        System.out.println("==========================================================");
-        System.out.println("Grid Size: " + Config.GRID_WIDTH + "x" + Config.GRID_HEIGHT);
-        System.out.println("Initial Prey: " + Config.INITIAL_PREY_COUNT);
-        System.out.println("Initial Predators: " + Config.INITIAL_PREDATOR_COUNT);
-        System.out.println("Tick Duration: " + Config.TICK_DURATION_MS + "ms");
-        System.out.println("Max Ticks: " + Config.MAX_TICKS);
-        System.out.println("==========================================================\n");
+    private void setupPanels() {
+        // 1. Startup Menu
+        startupMenu = new StartupMenu(
+                this::startWithDefaultConfig,
+                this::showConfigEditor
+        );
+        mainPanel.add(startupMenu, "STARTUP");
 
-        // Create reactive environment
-        environment = new ReactiveEnvironment();
+        // 2. Config Editor
+        configEditor = new ConfigEditor(
+                this::startSimulation,
+                this::showStartupMenu
+        );
+        mainPanel.add(configEditor, "CONFIG");
 
-        // Create UI with restart callback
-        if (ui != null) {
-            ui.dispose();
-        }
+        // 3. Execution Panel
+        executionPanel = createExecutionPanel();
+        mainPanel.add(executionPanel, "EXECUTION");
+    }
 
-        ui = new SimulationUI(environment, () -> {
-            shouldRestart = true;
-            showStartupDialog = false; // Restart with same config
+    private JPanel createExecutionPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        // Main content: Grid (left, 60%) + Curve (right, 40%)
+        JPanel contentPanel = new JPanel(new GridBagLayout());
+        contentPanel.setBackground(Color.WHITE);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.insets = new Insets(0, 0, 0, 0);
+
+        // Grid Panel (left, large square)
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0.6;
+        gbc.weighty = 1.0;
+        gridPanel = new GridPanel(null);
+        gridPanel.setBackground(Color.WHITE);
+        gridPanel.setBorder(BorderFactory.createTitledBorder("Agent Grid"));
+        contentPanel.add(gridPanel, gbc);
+
+        // Curve Panel (right)
+        gbc.gridx = 1;
+        gbc.weightx = 0.4;
+        curvePanel = new PopulationCurvePanel(null);
+        curvePanel.setBackground(Color.WHITE);
+        curvePanel.setBorder(BorderFactory.createTitledBorder("Population Dynamics"));
+        contentPanel.add(curvePanel, gbc);
+
+        panel.add(contentPanel, BorderLayout.CENTER);
+
+        // Control Panel (bottom)
+        controlPanel = createControlPanel();
+        panel.add(controlPanel, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private JPanel createControlPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 15));
+        panel.setBackground(new Color(245, 245, 247));
+        panel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(220, 220, 220)));
+
+        JButton backBtn = createControlButton("← Back", new Color(149, 165, 166));
+        backBtn.addActionListener(e -> {
+            stopSimulation();
+            showStartupMenu();
         });
 
-        // Reset UI update timer
-        lastUIUpdate = System.currentTimeMillis();
+        JButton pauseBtn = createControlButton("⏸ Pause", new Color(230, 126, 34));
+        pauseBtn.addActionListener(e -> {
+            paused = !paused;
+            pauseBtn.setText(paused ? "▶ Resume" : "⏸ Pause");
+        });
 
-        // Main simulation loop
-        for (int tick = 0; tick < Config.MAX_TICKS && !ui.isStopped(); tick++) {
-            // Pause handling
-            while (ui.isPaused() && !ui.isStopped()) {
+        JButton restartBtn = createControlButton("↻ Restart", new Color(231, 76, 60));
+        restartBtn.addActionListener(e -> {
+            int result = JOptionPane.showConfirmDialog(this, "Restart simulation?", "Confirm", JOptionPane.YES_NO_OPTION);
+            if (result == JOptionPane.YES_OPTION) {
+                stopSimulation();
+                startSimulation();
+            }
+        });
+
+        panel.add(backBtn);
+        panel.add(pauseBtn);
+        panel.add(restartBtn);
+        return panel;
+    }
+
+    private JButton createControlButton(String text, Color bgColor) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        btn.setPreferredSize(new Dimension(130, 40));
+        btn.setBackground(bgColor);
+        btn.setForeground(Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setBorderPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
+    private void showStartupMenu() {
+        cardLayout.show(mainPanel, "STARTUP");
+    }
+
+    private void showConfigEditor() {
+        cardLayout.show(mainPanel, "CONFIG");
+    }
+
+    private void startWithDefaultConfig() {
+        Config.resetToDefaults();
+        startSimulation();
+    }
+
+    private void startSimulation() {
+        stopSimulation();
+
+        environment = new ReactiveEnvironment();
+        gridPanel.setEnvironment(environment);
+        curvePanel.setEnvironment(environment);
+
+        running = true;
+        paused = false;
+
+        simulationThread = new Thread(() -> {
+            while (running ) {
+                if (!paused) {
+                    environment.tick();
+                    SwingUtilities.invokeLater(() -> {
+                        gridPanel.repaint();
+                        curvePanel.repaint();
+                    });
+                }
                 try {
-                    Thread.sleep(100);
+                    Thread.sleep(Config.TICK_DURATION_MS);
                 } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
                     break;
                 }
             }
+        });
+        simulationThread.start();
 
-            if (ui.isStopped()) break;
+        cardLayout.show(mainPanel, "EXECUTION");
+    }
 
-            // Execute tick
-            environment.tick();
-
-            // Throttle UI updates - only update every UI_UPDATE_INTERVAL ms
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - lastUIUpdate >= UI_UPDATE_INTERVAL) {
-                SwingUtilities.invokeLater(() -> ui.updateDisplay());
-                lastUIUpdate = currentTime;
-            }
-
-            // Check extinction
-            long preyCount = environment.getPreyAgents().size();
-            long predatorCount = environment.getPredatorAgents().size();
-
-            if (preyCount == 0 && predatorCount == 0) {
-                System.out.println("\nEXTINCTION EVENT! Both populations died out at tick " + tick);
-                String message = "Extinction Event at tick " + tick + "!\n" +
-                        "Both populations have died out.\n\n" +
-                        "Suggestions:\n" +
-                        "- Increase initial populations\n" +
-                        "- Lower energy costs\n" +
-                        "- Increase energy gains\n" +
-                        "- Faster grass regrowth";
-                ui.showExtinctionDialog(message);
-                // Force final UI update
-                SwingUtilities.invokeLater(() -> ui.updateDisplay());
-                break;
-            }
-
-            if (preyCount == 0 && tick % 50 == 0) {
-                System.out.println("Prey extinction at tick " + tick + "! Only " + predatorCount + " predators remain.");
-            }
-
-            if (predatorCount == 0 && tick > 100 && tick % 50 == 0) {
-                System.out.println("Predators extinct at tick " + tick + "! " + preyCount + " prey population stabilizing.");
-            }
-
-            // Delay for visualization
-            try {
-                Thread.sleep(Config.TICK_DURATION_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+    private void stopSimulation() {
+        running = false;
+        if (simulationThread != null) {
+            simulationThread.interrupt();
+            simulationThread = null;
         }
-
-        // Force final UI update
-        SwingUtilities.invokeLater(() -> ui.updateDisplay());
-
-        // Print final summary
-        if (!shouldRestart) {
-            environment.getDataLogger().printSummary();
-            System.out.println("\nSimulation data saved to: " + Config.CSV_OUTPUT_FILE);
-        }
-
-        // Shutdown
-        if (!shouldRestart) {
+        if (environment != null) {
             environment.shutdown();
-            if (ui != null) {
-                ui.dispose();
-            }
-            System.out.println("\nSimulation completed successfully!");
-        } else {
-            environment.shutdown();
-            System.out.println("\nRestarting simulation...");
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            environment = null;
         }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            new MainSimulation().setVisible(true);
+        });
     }
 }

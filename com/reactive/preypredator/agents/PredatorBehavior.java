@@ -178,7 +178,8 @@ public class PredatorBehavior extends CyclicBehaviour {
         );
 
         for (PredatorAgent mate : nearbyPredators) {
-            if (mate.getGender() != agent.getGender() &&
+            if (
+//                    mate.getGender() != agent.getGender() &&
                     mate.getReproductionCooldown() == 0 &&
                     mate.getEnergy() >= Config.PREDATOR_REPRODUCTION_THRESHOLD) {
 

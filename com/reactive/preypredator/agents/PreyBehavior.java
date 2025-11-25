@@ -238,7 +238,8 @@ public class PreyBehavior extends CyclicBehaviour {
         );
 
         for (PreyAgent mate : nearbyPrey) {
-            if (mate.getGender() != agent.getGender() &&
+            if (
+//                    mate.getGender() != agent.getGender() &&
                     mate.getReproductionCooldown() == 0 &&
                     mate.getEnergy() >= Config.PREY_REPRODUCTION_THRESHOLD) {
 

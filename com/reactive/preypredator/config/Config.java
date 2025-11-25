@@ -7,8 +7,8 @@ import com.reactive.preypredator.model.PlacementMode;
  */
 public class Config {
     // ================= GRID =================
-    public static int GRID_WIDTH = 30;
-    public static int GRID_HEIGHT = 30;
+    public static int GRID_WIDTH = 50;
+    public static int GRID_HEIGHT = 50;
 
     // ================= PLACEMENT MODE =================
     public static PlacementMode PLACEMENT_MODE = PlacementMode.FIXED_PATTERN;
@@ -55,8 +55,8 @@ public class Config {
     public static final int UI_HEIGHT = GRID_HEIGHT * CELL_SIZE;
 
     public static void resetToDefaults() {
-        GRID_WIDTH = 30;
-        GRID_HEIGHT = 30;
+        GRID_WIDTH = 50;
+        GRID_HEIGHT = 50;
         PLACEMENT_MODE = PlacementMode.FIXED_PATTERN;
         INITIAL_PREY_COUNT = 100;
         INITIAL_PREDATOR_COUNT = 25;
