@@ -8,7 +8,9 @@ import javax.swing.*;
 import java.awt.*;
 
 /**
- * Main application with startup menu and card layout
+ * Main application with startup menu
+ * - "Start with Default Config" → Mock simulation (demo)
+ * - "Custom Configuration" → Real JADE simulation with edited config
  */
 public class MainSimulation extends JFrame {
     private CardLayout cardLayout;
@@ -17,6 +19,7 @@ public class MainSimulation extends JFrame {
     private StartupMenu startupMenu;
     private ConfigEditor configEditor;
     private JPanel executionPanel;
+    private MockSimulationPanel mockSimulationPanel;
 
     private GridPanel gridPanel;
     private PopulationCurvePanel curvePanel;
@@ -45,19 +48,23 @@ public class MainSimulation extends JFrame {
     private void setupPanels() {
         // 1. Startup Menu
         startupMenu = new StartupMenu(
-                this::startWithDefaultConfig,
-                this::showConfigEditor
+                this::showMockSimulation,      // "Start with Default" → MOCK
+                this::showConfigEditor          // "Custom Configuration" → Config Editor
         );
         mainPanel.add(startupMenu, "STARTUP");
 
-        // 2. Config Editor
+        // 2. Config Editor → When user clicks "Start Simulation" → REAL simulation
         configEditor = new ConfigEditor(
-                this::startSimulation,
+                this::startRealSimulation,      // CHANGED: Now runs REAL simulation
                 this::showStartupMenu
         );
         mainPanel.add(configEditor, "CONFIG");
 
-        // 3. Execution Panel
+        // 3. Mock Simulation Panel (for default config button)
+        mockSimulationPanel = new MockSimulationPanel(this::showStartupMenu);
+        mainPanel.add(mockSimulationPanel, "MOCK");
+
+        // 4. Execution Panel (Real JADE simulation)
         executionPanel = createExecutionPanel();
         mainPanel.add(executionPanel, "EXECUTION");
     }
@@ -121,7 +128,7 @@ public class MainSimulation extends JFrame {
             int result = JOptionPane.showConfirmDialog(this, "Restart simulation?", "Confirm", JOptionPane.YES_NO_OPTION);
             if (result == JOptionPane.YES_OPTION) {
                 stopSimulation();
-                startSimulation();
+                startRealSimulation();
             }
         });
 
@@ -151,12 +158,18 @@ public class MainSimulation extends JFrame {
         cardLayout.show(mainPanel, "CONFIG");
     }
 
-    private void startWithDefaultConfig() {
-        Config.resetToDefaults();
-        startSimulation();
+    // MOCK SIMULATION: For "Start with Default Config" button
+    private void showMockSimulation() {
+        // Recreate mock panel to restart animation
+        mainPanel.remove(mockSimulationPanel);
+        mockSimulationPanel = new MockSimulationPanel(this::showStartupMenu);
+        mainPanel.add(mockSimulationPanel, "MOCK");
+
+        cardLayout.show(mainPanel, "MOCK");
     }
 
-    private void startSimulation() {
+    // REAL SIMULATION: For "Custom Configuration" → Start button
+    private void startRealSimulation() {
         stopSimulation();
 
         environment = new ReactiveEnvironment();
@@ -167,7 +180,7 @@ public class MainSimulation extends JFrame {
         paused = false;
 
         simulationThread = new Thread(() -> {
-            while (running ) {
+            while (running) {
                 if (!paused) {
                     environment.tick();
                     SwingUtilities.invokeLater(() -> {

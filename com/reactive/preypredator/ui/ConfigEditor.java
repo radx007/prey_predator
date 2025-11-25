@@ -8,6 +8,7 @@ import java.util.Map;
 
 /**
  * Configuration editor panel with form and start button
+ * FIXED: Spinner ranges for high reproduction cooldown values
  */
 public class ConfigEditor extends JPanel {
     private Map<String, JSpinner> spinners;
@@ -131,31 +132,31 @@ public class ConfigEditor extends JPanel {
     private JPanel createPreyPanel() {
         JPanel panel = new JPanel(new GridLayout(0, 2, 15, 8));
         panel.setBackground(Color.WHITE);
-        addSpinner(panel, "Start Energy", "PREY_ENERGY_START", Config.PREY_ENERGY_START, 50, 300, 10);
-        addSpinner(panel, "Max Energy", "PREY_ENERGY_MAX", Config.PREY_ENERGY_MAX, 100, 400, 10);
-        addSpinner(panel, "Energy from Grass", "PREY_ENERGY_FROM_GRASS", Config.PREY_ENERGY_FROM_GRASS, 10, 100, 5);
-        addDoubleSpinner(panel, "Move Cost", "PREY_ENERGY_MOVE_COST", Config.PREY_ENERGY_MOVE_COST, 0.1, 5.0, 0.1);
+        addSpinner(panel, "Start Energy", "PREY_ENERGY_START", Config.PREY_ENERGY_START, 20, 300, 10);
+        addSpinner(panel, "Max Energy", "PREY_ENERGY_MAX", Config.PREY_ENERGY_MAX, 50, 400, 10);
+        addSpinner(panel, "Energy from Grass", "PREY_ENERGY_FROM_GRASS", Config.PREY_ENERGY_FROM_GRASS, 5, 150, 5);
+        addDoubleSpinner(panel, "Move Cost", "PREY_ENERGY_MOVE_COST", Config.PREY_ENERGY_MOVE_COST, 0.1, 10.0, 0.1);
         addSpinner(panel, "Reproduction Threshold", "PREY_REPRODUCTION_THRESHOLD", Config.PREY_REPRODUCTION_THRESHOLD, 30, 200, 5);
-        addSpinner(panel, "Reproduction Cooldown", "PREY_REPRODUCTION_COOLDOWN", Config.PREY_REPRODUCTION_COOLDOWN, 1, 20, 1);
+        addSpinner(panel, "Reproduction Cooldown", "PREY_REPRODUCTION_COOLDOWN", Config.PREY_REPRODUCTION_COOLDOWN, 1, 1000, 10);  // FIXED: max 1000
         return panel;
     }
 
     private JPanel createPredatorPanel() {
         JPanel panel = new JPanel(new GridLayout(0, 2, 15, 8));
         panel.setBackground(Color.WHITE);
-        addSpinner(panel, "Start Energy", "PREDATOR_ENERGY_START", Config.PREDATOR_ENERGY_START, 50, 300, 10);
-        addSpinner(panel, "Max Energy", "PREDATOR_ENERGY_MAX", Config.PREDATOR_ENERGY_MAX, 100, 500, 10);
-        addSpinner(panel, "Energy from Prey", "PREDATOR_ENERGY_FROM_PREY", Config.PREDATOR_ENERGY_FROM_PREY, 20, 150, 5);
-        addDoubleSpinner(panel, "Move Cost", "PREDATOR_ENERGY_MOVE_COST", Config.PREDATOR_ENERGY_MOVE_COST, 0.1, 10.0, 0.1);
-        addSpinner(panel, "Reproduction Threshold", "PREDATOR_REPRODUCTION_THRESHOLD", Config.PREDATOR_REPRODUCTION_THRESHOLD, 50, 300, 10);
-        addSpinner(panel, "Reproduction Cooldown", "PREDATOR_REPRODUCTION_COOLDOWN", Config.PREDATOR_REPRODUCTION_COOLDOWN, 1, 30, 1);
+        addSpinner(panel, "Start Energy", "PREDATOR_ENERGY_START", Config.PREDATOR_ENERGY_START, 20, 400, 10);  // FIXED: max 400
+        addSpinner(panel, "Max Energy", "PREDATOR_ENERGY_MAX", Config.PREDATOR_ENERGY_MAX, 50, 500, 10);
+        addSpinner(panel, "Energy from Prey", "PREDATOR_ENERGY_FROM_PREY", Config.PREDATOR_ENERGY_FROM_PREY, 10, 200, 5);
+        addDoubleSpinner(panel, "Move Cost", "PREDATOR_ENERGY_MOVE_COST", Config.PREDATOR_ENERGY_MOVE_COST, 0.1, 20.0, 0.1);
+        addSpinner(panel, "Reproduction Threshold", "PREDATOR_REPRODUCTION_THRESHOLD", Config.PREDATOR_REPRODUCTION_THRESHOLD, 50, 400, 10);  // FIXED: max 400
+        addSpinner(panel, "Reproduction Cooldown", "PREDATOR_REPRODUCTION_COOLDOWN", Config.PREDATOR_REPRODUCTION_COOLDOWN, 1, 1500, 10);  // FIXED: max 1500
         return panel;
     }
 
     private JPanel createEnvironmentPanel() {
         JPanel panel = new JPanel(new GridLayout(0, 2, 15, 8));
         panel.setBackground(Color.WHITE);
-        addSpinner(panel, "Grass Regrowth Ticks", "GRASS_REGROWTH_TICKS", Config.GRASS_REGROWTH_TICKS, 1, 50, 1);
+        addSpinner(panel, "Grass Regrowth Ticks", "GRASS_REGROWTH_TICKS", Config.GRASS_REGROWTH_TICKS, 1, 100, 1);
         addSpinner(panel, "Tick Duration (ms)", "TICK_DURATION_MS", Config.TICK_DURATION_MS, 10, 1000, 10);
         return panel;
     }

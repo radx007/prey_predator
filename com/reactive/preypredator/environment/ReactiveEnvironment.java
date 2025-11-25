@@ -30,12 +30,17 @@ public class ReactiveEnvironment {
     private DataLogger dataLogger;
     private int currentTick;
     private Random random;
+    private volatile boolean running = true;
 
     private final Object tickLock = new Object();
     private boolean tickActive = false;
     private CountDownLatch agentLatch;
     private Set<String> deadAgents;
 
+
+    public boolean isRunning() {
+        return running;
+    }
     public ReactiveEnvironment() {
         this.grid = new Grid(Config.GRID_WIDTH, Config.GRID_HEIGHT);
         this.preyAgents = new ConcurrentHashMap<>();
@@ -299,6 +304,8 @@ public class ReactiveEnvironment {
     }
 
     public void tick() {
+        if (!running) return;
+
         currentTick++;
 
         int activeAgents = 0;

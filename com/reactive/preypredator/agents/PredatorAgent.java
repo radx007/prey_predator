@@ -7,7 +7,7 @@ import com.reactive.preypredator.model.Position;
 import jade.core.Agent;
 
 /**
- * Predator agent in the reactive system
+ * Predator agent with eating cooldown to prevent rapid kills
  */
 public class PredatorAgent extends Agent {
     private ReactiveEnvironment environment;
@@ -16,6 +16,8 @@ public class PredatorAgent extends Agent {
     private Gender gender;
     private int reproductionCooldown;
     private int ticksWithoutFood;
+    private int ticksSinceLastMeal;
+    private int eatingCooldown;  // NEW: prevent kill spam
     private boolean alive;
 
     @Override
@@ -30,12 +32,11 @@ public class PredatorAgent extends Agent {
             this.energy = Config.PREDATOR_ENERGY_START;
             this.reproductionCooldown = 0;
             this.ticksWithoutFood = 0;
+            this.ticksSinceLastMeal = Integer.MAX_VALUE;
+            this.eatingCooldown = 0;  // NEW
             this.alive = true;
 
-            // Register with environment
             environment.registerPredatorAgent(this);
-
-            // Add reactive behavior
             addBehaviour(new PredatorBehavior(this, environment));
         }
     }
@@ -87,12 +88,39 @@ public class PredatorAgent extends Agent {
         return ticksWithoutFood;
     }
 
+    public void setTicksWithoutFood(int ticks) {
+        this.ticksWithoutFood = ticks;
+    }
+
     public void incrementTicksWithoutFood() {
         ticksWithoutFood++;
     }
 
     public void resetTicksWithoutFood() {
         ticksWithoutFood = 0;
+    }
+
+    public int getTicksSinceLastMeal() {
+        return ticksSinceLastMeal;
+    }
+
+    public void setTicksSinceLastMeal(int ticks) {
+        this.ticksSinceLastMeal = ticks;
+    }
+
+    // NEW: Eating cooldown methods
+    public int getEatingCooldown() {
+        return eatingCooldown;
+    }
+
+    public void setEatingCooldown(int cooldown) {
+        this.eatingCooldown = cooldown;
+    }
+
+    public void decrementEatingCooldown() {
+        if (eatingCooldown > 0) {
+            eatingCooldown--;
+        }
     }
 
     public void consumeEnergy(double amount) {

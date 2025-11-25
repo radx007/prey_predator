@@ -11,8 +11,7 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Fully reactive cyclic behavior for predator agents
- * No ACL messages - reacts to environment state changes
+ * ADAPTED: Low starvation + eating cooldown + very slow reproduction
  */
 public class PredatorBehavior extends CyclicBehaviour {
     private final PredatorAgent agent;
@@ -28,7 +27,6 @@ public class PredatorBehavior extends CyclicBehaviour {
 
     @Override
     public void action() {
-        // Reactive waiting: block until environment activates tick
         synchronized (environment.getTickLock()) {
             while (!environment.isTickActive()) {
                 try {
@@ -40,73 +38,83 @@ public class PredatorBehavior extends CyclicBehaviour {
             }
         }
 
-        // If dead, do nothing
         if (!agent.isAlive()) {
+            environment.signalAgentCompletion();
             return;
         }
 
         Position currentPos = agent.getPosition();
+        boolean ateFood = false;
 
-        // 1. Try to hunt nearby prey
-        List<PreyAgent> nearbyPrey = environment.getNearbyPreyAgents(
-                currentPos, 1
-        );
+        // 1. Try to hunt adjacent prey (only if eating cooldown = 0)
+        if (agent.getEatingCooldown() == 0) {
+            List<PreyAgent> adjacentPrey = environment.getNearbyPreyAgents(currentPos, 1);
 
-        if (!nearbyPrey.isEmpty()) {
-            // EAT prey
-            PreyAgent prey = nearbyPrey.get(0);
-            prey.setAlive(false);
-            environment.removeDeadAgent(prey.getLocalName());
+            if (!adjacentPrey.isEmpty()) {
+                PreyAgent prey = adjacentPrey.get(0);
+                prey.setAlive(false);
+                environment.removeDeadAgent(prey.getLocalName());
 
-            agent.setEnergy(agent.getEnergy() + Config.PREDATOR_ENERGY_FROM_PREY);
-            agent.resetTicksWithoutFood();
-        } else {
-            agent.incrementTicksWithoutFood();
+                agent.setEnergy(agent.getEnergy() + Config.PREDATOR_ENERGY_FROM_PREY);
+                agent.resetTicksWithoutFood();
+                agent.setTicksSinceLastMeal(0);
+                agent.setEatingCooldown(Config.PREDATOR_EATING_COOLDOWN); // NEW: cooldown
+                ateFood = true;
+            }
         }
 
-        // 2. Seek prey within vision range
+        if (!ateFood) {
+            agent.incrementTicksWithoutFood();
+
+            if (agent.getTicksSinceLastMeal() < Integer.MAX_VALUE) {
+                agent.setTicksSinceLastMeal(agent.getTicksSinceLastMeal() + 1);
+            }
+        }
+
+        // 2. Movement: Chase prey or wander
         List<Position> preyPositions = environment.getNearbyPreyPositions(
-                currentPos, Config.PREDATOR_VISION_RANGE
-        );
+                currentPos, Config.PREDATOR_VISION_RANGE);
 
         Position nextPos;
         if (!preyPositions.isEmpty()) {
-            // CHASE nearest prey
             Position target = findNearest(currentPos, preyPositions);
             nextPos = moveToward(currentPos, target);
         } else {
-            // WANDER randomly
             nextPos = randomWalk(currentPos);
         }
 
-        // 3. Move to next position
         if (nextPos != null && !nextPos.equals(currentPos)) {
             environment.moveAgent(agent.getLocalName(), nextPos);
             agent.setPosition(nextPos);
-            agent.consumeEnergy(Config.PREDATOR_ENERGY_MOVE_COST);
         }
 
-        // 4. Attempt reproduction
+        // 3. LOW energy cost (adapted from friend's config)
+        agent.consumeEnergy(Config.PREDATOR_ENERGY_MOVE_COST);
+
+        // 4. Cooldown decrements
+        agent.decrementReproductionCooldown();
+        agent.decrementEatingCooldown(); // NEW
+
+        // 5. DEATH CONDITIONS (more lenient now)
+        boolean starvedByEnergy = agent.getEnergy() <= Config.PREDATOR_STARVATION_THRESHOLD;
+        boolean starvedByTime = agent.getTicksWithoutFood() >= Config.PREDATOR_MAX_TICKS_WITHOUT_FOOD;
+
+        if (starvedByEnergy || starvedByTime) {
+            agent.setAlive(false);
+            environment.removeDeadAgent(agent.getLocalName());
+            environment.signalAgentCompletion();
+            return;
+        }
+
+        // 6. REPRODUCTION: Very long cooldown prevents explosions
         if (agent.getReproductionCooldown() == 0 &&
                 agent.getEnergy() >= Config.PREDATOR_REPRODUCTION_THRESHOLD) {
             attemptReproduction();
-        } else {
-            agent.decrementReproductionCooldown();
         }
 
-        // 5. Check starvation/death
-        if (agent.getEnergy() <= Config.PREDATOR_STARVATION_THRESHOLD) {
-            agent.setAlive(false);
-            environment.removeDeadAgent(agent.getLocalName());
-        }
-
-        // Signal completion
         environment.signalAgentCompletion();
     }
 
-    /**
-     * Move one step toward target
-     */
     private Position moveToward(Position current, Position target) {
         int dx = Integer.compare(target.x, current.x);
         int dy = Integer.compare(target.y, current.y);
@@ -116,7 +124,6 @@ public class PredatorBehavior extends CyclicBehaviour {
             return preferred;
         }
 
-        // Try alternatives
         List<Position> alternatives = getNeighbors(current);
         if (!alternatives.isEmpty()) {
             return alternatives.get(random.nextInt(alternatives.size()));
@@ -125,17 +132,11 @@ public class PredatorBehavior extends CyclicBehaviour {
         return current;
     }
 
-    /**
-     * Random walk
-     */
     private Position randomWalk(Position current) {
         List<Position> neighbors = getNeighbors(current);
         return neighbors.isEmpty() ? current : neighbors.get(random.nextInt(neighbors.size()));
     }
 
-    /**
-     * Get available neighboring positions
-     */
     private List<Position> getNeighbors(Position pos) {
         List<Position> neighbors = new ArrayList<>();
         for (int dx = -1; dx <= 1; dx++) {
@@ -151,9 +152,6 @@ public class PredatorBehavior extends CyclicBehaviour {
         return neighbors;
     }
 
-    /**
-     * Find nearest position from list
-     */
     private Position findNearest(Position current, List<Position> positions) {
         Position nearest = null;
         double minDist = Double.MAX_VALUE;
@@ -169,28 +167,22 @@ public class PredatorBehavior extends CyclicBehaviour {
         return nearest;
     }
 
-    /**
-     * Attempt reproduction with nearby mate
-     */
     private void attemptReproduction() {
         List<PredatorAgent> nearbyPredators = environment.getNearbyPredatorAgents(
-                agent.getPosition(), 2
-        );
+                agent.getPosition(), 2);
 
         for (PredatorAgent mate : nearbyPredators) {
-            if (
-//                    mate.getGender() != agent.getGender() &&
-                    mate.getReproductionCooldown() == 0 &&
+            if (mate.getReproductionCooldown() == 0 &&
                     mate.getEnergy() >= Config.PREDATOR_REPRODUCTION_THRESHOLD) {
 
-                // Create offspring
                 environment.createPredatorOffspring(agent.getPosition());
 
-                // Set cooldowns and reduce energy
                 agent.setReproductionCooldown(Config.PREDATOR_REPRODUCTION_COOLDOWN);
                 mate.setReproductionCooldown(Config.PREDATOR_REPRODUCTION_COOLDOWN);
-                agent.setEnergy(agent.getEnergy() - 30);
-                mate.setEnergy(mate.getEnergy() - 30);
+
+                // Use config cost
+                agent.setEnergy(agent.getEnergy() - Config.PREDATOR_REPRODUCTION_COST);
+                mate.setEnergy(mate.getEnergy() - Config.PREDATOR_REPRODUCTION_COST);
                 break;
             }
         }
